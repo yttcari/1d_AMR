@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 
 def plot_amr_grid(grid_instance, title="AMR Grid Structure", label=False):
     """
@@ -64,13 +65,14 @@ def plot_amr_grid(grid_instance, title="AMR Grid Structure", label=False):
     plt.tight_layout()
     plt.show()
 
-def plot_amr_value(grid):
+def plot_amr_value(grid, ax=None):
     active_cells = grid.get_all_active_cells()
 
     prim = np.array([cell.prim for cell in active_cells])
     X = np.array([cell.x for cell in active_cells])
 
-    fig, ax = plt.subplots(1, 3, figsize=(15, 5))
+    if ax is None:
+        fig, ax = plt.subplots(1, 3, figsize=(15, 5))
 
     ax[0].set_xlabel(r"$x$")
     ax[0].set_ylabel(r"$\rho$")
@@ -88,3 +90,72 @@ def plot_amr_value(grid):
         ax[i].plot(X, prim[:, i])
 
     plt.tight_layout()
+
+def animate(history, filename=None, fps=10, dpi=100):
+    """
+    Creates and displays an animation of the AMR solution using the collected history data.
+
+    Args:
+        history (list): A list of dictionaries, where each dictionary contains
+                        {'time', 'active_prims', 'active_x_coords'} for a snapshot.
+        fps (int): Frames per second for the animation.
+    """
+
+    fig, ax = plt.subplots(1, 3, figsize=(15, 5))
+    fig.suptitle("AMR Simulation Results")
+
+    all_densities = np.concatenate([h[:,0] for h in history])
+    all_speeds = np.concatenate([h[:,1] for h in history])
+    all_pressures = np.concatenate([h[:,2] for h in history])
+
+    ax[0].set_ylim(all_densities.min() * 0.95, all_densities.max() * 1.05)
+    ax[1].set_ylim(all_speeds.min() * 0.95 - 0.1, all_speeds.max() * 1.05 + 0.1)
+    ax[2].set_ylim(all_pressures.min() * 0.95, all_pressures.max() * 1.05)
+
+    x_min_global = 0.0
+    x_max_global = 1.0
+    for subplot_ax in ax:
+        subplot_ax.set_xlim(x_min_global, x_max_global)
+
+
+    def update(frame_idx):
+        """
+        Update function for FuncAnimation. This function is called for each frame
+        and updates the plot with the data for that frame_idx.
+        """
+        snapshot = history[frame_idx]
+        X_current = snapshot[:, 0]
+        prim_current = snapshot[:, 1:]
+
+        ax[0].cla()
+        ax[1].cla()
+        ax[2].cla()
+
+        ax[0].set_xlabel(r"$x$")
+        ax[0].set_ylabel(r"$\rho$")
+        ax[0].plot(X_current, prim_current[:, 0], 'b-')
+        ax[0].set_xlim(x_min_global, x_max_global) 
+        ax[0].set_ylim(all_densities.min() * 0.95, all_densities.max() * 1.05)
+
+
+        ax[1].set_xlabel(r"$x$")
+        ax[1].set_ylabel(r"$u$")
+        ax[1].set_title("Speed")
+        ax[1].plot(X_current, prim_current[:, 1], 'g-')
+        ax[1].set_xlim(x_min_global, x_max_global)
+        ax[1].set_ylim(all_speeds.min() * 0.95 - 0.1, all_speeds.max() * 1.05 + 0.1)
+
+
+        ax[2].set_xlabel(r"$x$")
+        ax[2].set_ylabel(r"$P$")
+        ax[2].set_title("Pressure")
+        ax[2].plot(X_current, prim_current[:, 2], 'r-')
+        ax[2].set_xlim(x_min_global, x_max_global)
+        ax[2].set_ylim(all_pressures.min() * 0.95, all_pressures.max() * 1.05)
+
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+    print(f"Preparing animation with {len(history)} frames for display...")
+    ani = FuncAnimation(fig, update, frames=len(history), interval=1000/fps, blit=False)
+    if filename is not None:
+        ani.save(filename, writer='pillow', fps=fps, dpi=dpi)

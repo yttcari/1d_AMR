@@ -6,16 +6,18 @@ class grid:
     def __init__(self, L, N):
         self.L = L
         self.N = N
-        self.dx0 = L / N
+        self.dx = {0: L/N}
         self.grid = {} 
         self.id_counter = 0
 
         # Initialization
         for n in range(self.N):
             cell_id = self.get_next_id()
-            new_cell = cell.cell(prim=np.zeros(3), xmin=n * self.dx0, xmax=(n + 1) * self.dx0,
+            new_cell = cell.cell(prim=np.zeros(3), xmin=n * self.dx[0], xmax=(n + 1) * self.dx[0],
                             id=cell_id)
             self.grid[cell_id] = new_cell 
+
+        self.max_level = 0
 
     def get_next_id(self):
         """Generates a unique ID for a new cell."""
@@ -79,6 +81,10 @@ class grid:
         self.grid[child_left_id] = child_left
         self.grid[child_right_id] = child_right
 
+        if child_level > self.max_level:
+            self.max_level += 1
+            self.dx[child_level] = child_left.dx
+
         return child_left_id, child_right_id
 
     def coarsen_cell(self, parent_cell_id):
@@ -113,3 +119,28 @@ class grid:
 
         for i, cell in enumerate(active_cells):
             cell.update(prim[i])
+
+    def get_same_level_cells(self):
+        """
+        Retrieves all active cells, grouped by their refinement level.
+        Returns a dictionary where keys are levels (int) and values are lists of cell objects
+        at that level, sorted by their xmin.
+        """
+        # First, get all active cells using the existing efficient method
+        all_active_cells = self.get_all_active_cells()
+
+        # Create a dictionary to store cells, grouped by level
+        cells_by_level = {}
+
+        # Populate the dictionary
+        for cell_obj in all_active_cells:
+            level = cell_obj.level
+            if level not in cells_by_level:
+                cells_by_level[level] = [] # Initialize list for this level if not present
+            cells_by_level[level].append(cell_obj)
+
+        # Sort cells within each level by their xmin for spatial order
+        for level in cells_by_level:
+            cells_by_level[level].sort(key=lambda c: c.xmin)
+
+        return cells_by_level

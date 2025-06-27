@@ -102,36 +102,88 @@ def HLL_flux(UL, UR):
         return (SR * FL - SL * FR + SL * SR * (UR - UL)) / (SR - SL)
     else:
         return FR
-    
-def calc_dt_max(grid):
-    prim = np.array([c.prim for c in grid.grid.values()])
-    dx = np.array([c.dx for c in grid.grid.values()])
+
+""" SAME dx ONLY
+def calc_dt(grid):
+    active_cells = grid.get_all_active_cells()
+
+    prim = np.array([c.prim for c in active_cells])
+    dx = np.array(list(grid.dx.values()))
 
     p = prim[:, 2]
     rho = prim[:, 0]
     u = prim[:, 1]
 
     cs   = np.sqrt(GAMMA * p / rho)
-    c = np.abs(u) + cs
+    c = np.min(np.abs(u) + cs)
 
-    dt = CFL * np.min(dx / c)
+    dt = CFL * (dx / c)
     return dt
+"""
+
+def calc_dt(grid_instance):
+    """
+    Calculates the maximum allowable time step (dt) for each refinement level
+    in the grid, based on the CFL condition for cells at that level.
+
+    Args:
+        grid_instance (grid): An instance of your grid class.
+
+    Returns:
+        dict: A dictionary where keys are refinement levels (int) and values
+              are the calculated maximum dt for cells at that level.
+    """
+    # Get all active cells, grouped by level
+    cells_by_level = grid_instance.get_same_level_cells()
+
+    dt_per_level = {}
+
+    for level, cell_list in cells_by_level.items():
+
+        prim_level = np.array([c.prim for c in cell_list])
+        dx_level = np.array([c.dx for c in cell_list])
+
+        p_level = prim_level[:, 2]
+        rho_level = prim_level[:, 0]
+        u_level = prim_level[:, 1]
+
+        # Prevent instability
+        rho_level = np.maximum(rho_level, np.finfo(float).eps)
+        p_level = np.maximum(p_level, np.finfo(float).eps)
+
+        cs_level = np.sqrt(GAMMA * p_level / rho_level)
+        c_level = np.abs(u_level) + cs_level
+
+        # Prevent instability
+        c_level = np.maximum(c_level, np.finfo(float).eps)
+
+        dt_level = CFL * np.min(dx_level / c_level)        
+        dt_per_level[level] = dt_level
+
+    return dt_per_level
 
 def solve(solver, grid, t_final):
-    grid_prim = np.array([c.prim for c in grid.grid.values()])
-    U = prim2con_grid(grid_prim)
-    dx = np.array([c.dx for c in grid.grid.values()])
-
     active_cells = grid.get_all_active_cells()
     N = len(active_cells)
 
+    grid_prim = np.array([c.prim for c in active_cells])
+    U = prim2con_grid(grid_prim)
+    dx = np.array([c.dx for c in active_cells])
+    X = np.array([c.x for c in active_cells])
     t = 0
 
-    while t < t_final:
-        print(f"Timestep: {t} s")
+    history = []
 
+    while t < t_final:
+        history.append(np.concatenate((X.reshape(-1, 1), U), axis=1))
+
+        print(f"Timestep: {t} s")
         # Compute time step
-        dt   = calc_dt_max(grid)
+        
+        # dt   = calc_dt(grid)
+        dt_dict = calc_dt(grid)
+        dt = np.min(list(dt_dict.values()))
+
         if t + dt > t_final:
             dt = t_final - t
 
@@ -152,4 +204,7 @@ def solve(solver, grid, t_final):
         # Update time and add to history
         t += dt
 
+    print("FINISHED")
     grid.update(U)
+    
+    return np.array(history)
