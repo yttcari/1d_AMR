@@ -50,12 +50,30 @@ def con2prim(con):
 
     return np.array([rho, u, p])
 
-def con2prim_grid(con):
-    tmp = []
-    for i in con:
-        tmp.append(con2prim(i))
+def con2prim_grid(U_values):
+    # Ensure U_values is treated as a float NumPy array
+    U_values = np.asarray(U_values, dtype=float)
 
-    return np.array(tmp)
+    # Initialize prim with the correct shape and data type
+    prim = np.zeros_like(U_values, dtype=float)
+
+    for i, u in enumerate(U_values):
+        rho = u[0]
+        mom = u[1]
+        energy = u[2]
+        
+        # Robustness for numerical errors
+        if rho <= 0: rho = 1e-10
+        u_vel = mom / rho
+        internal_energy = energy - 0.5 * rho * u_vel**2
+        if internal_energy < 0: internal_energy = 1e-10
+
+        pressure = internal_energy * (GAMMA - 1)
+        
+        # MODIFIED LINE: Assign a NumPy array directly to the row
+        prim[i] = np.array([rho, u_vel, pressure], dtype=float) 
+        
+    return prim
 
 def prim2con_grid(con):
     tmp = []
@@ -163,18 +181,18 @@ def calc_dt(grid_instance):
     return dt_per_level
 
 def solve(solver, grid, t_final):
-    active_cells = grid.get_all_active_cells()
-    N = len(active_cells)
 
-    grid_prim = np.array([c.prim for c in active_cells])
-    U = prim2con_grid(grid_prim)
-    dx = np.array([c.dx for c in active_cells])
-    X = np.array([c.x for c in active_cells])
     t = 0
 
     history = []
 
     while t < t_final:
+        active_cells = grid.get_all_active_cells()
+        N = len(active_cells)
+        grid_prim = np.array([c.prim for c in active_cells])
+        U = prim2con_grid(grid_prim)
+        dx = np.array([c.dx for c in active_cells])
+        X = np.array([c.x for c in active_cells])
         history.append(np.concatenate((X.reshape(-1, 1), U), axis=1))
 
         print(f"Timestep: {t} s")
@@ -200,11 +218,16 @@ def solve(solver, grid, t_final):
         dU = (dt / dx)[:, np.newaxis] * (flux[1:] - flux[:-1])
 
         U -= dU
+        grid.update(con2prim_grid(U))
 
         # Update time and add to history
         t += dt
 
+        grid.flag_cells()
+        grid.refine()
+        grid.coarse()
+
     print("FINISHED")
-    grid.update(U)
     
-    return np.array(history)
+    
+    return history
