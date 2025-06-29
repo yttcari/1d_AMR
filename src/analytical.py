@@ -64,4 +64,4 @@ def get_sod_solution(x, t_plot, rho_L, u_L, P_L, rho_R, u_R, P_R, gamma, x_diaph
             P[i] = P_R
             u[i] = u_R
 
-    return rho, u, P
+    return np.array(rho), np.array(u), np.array(P)

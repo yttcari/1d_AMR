@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import copy
 from tqdm import tqdm
     
-CFL = 0.75
+CFL = 0.5
 GAMMA = 1.4
 
 def get_gamma():
@@ -174,8 +174,8 @@ def calc_dt(grid_instance):
         u_level = prim_level[:, 1]
 
         # Prevent instability
-        rho_level = np.maximum(rho_level, np.finfo(float).eps)
-        p_level = np.maximum(p_level, np.finfo(float).eps)
+        rho_level = np.max(rho_level, np.finfo(float).eps)
+        p_level = np.max(p_level, np.finfo(float).eps)
 
         cs_level = np.sqrt(GAMMA * p_level / rho_level)
         c_level = np.abs(u_level) + cs_level
@@ -249,7 +249,7 @@ def new_solve(solver, grid, t_final, **kwargs):
         while t < t_final:
             history.append(copy.deepcopy(grid))
 
-            grid.refine(id_only=False)
+            grid.refine(id_only=False) # Refine all cell first
             active_cells = grid.get_all_active_cells()
             N = len(active_cells)
             grid_prim = np.array([c.prim for c in active_cells])
@@ -297,7 +297,7 @@ def new_solve(solver, grid, t_final, **kwargs):
                     #print(np.max(DEBUG_DIFF), np.min(DEBUG_DIFF), np.mean(DEBUG_DIFF))
 
                     if np.all(diff_l < epsilon) and np.all(diff_r < epsilon):
-                        grid.coarsen_cell(active_cells[c].parent)
+                        grid.coarsen_cell(active_cells[c].parent) # coarse all cell that has diff < epsilon
             
             new_flag(**kwargs)
 

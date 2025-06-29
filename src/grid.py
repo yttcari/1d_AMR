@@ -136,20 +136,17 @@ class grid:
         Returns a dictionary where keys are levels (int) and values are lists of cell objects
         at that level, sorted by their xmin.
         """
-        # First, get all active cells using the existing efficient method
         all_active_cells = self.get_all_active_cells()
 
-        # Create a dictionary to store cells, grouped by level
         cells_by_level = {}
 
-        # Populate the dictionary
         for cell_obj in all_active_cells:
             level = cell_obj.level
             if level not in cells_by_level:
-                cells_by_level[level] = [] # Initialize list for this level if not present
+                cells_by_level[level] = []
             cells_by_level[level].append(cell_obj)
 
-        # Sort cells within each level by their xmin for spatial order
+        # sort cell order
         for level in cells_by_level:
             cells_by_level[level].sort(key=lambda c: c.xmin)
 
