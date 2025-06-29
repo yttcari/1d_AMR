@@ -18,7 +18,10 @@ class grid:
                             id=cell_id)
             self.grid[cell_id] = new_cell 
 
-        self.max_level = 0
+        self.max_level = 3
+
+    def update_max_level(self, new_max):
+        self.max_level = new_max
 
     def __repr__(self):
         return(f"(L={self.L}, N={self.N}, dx={self.dx}, grid={self.grid}, id_counter={self.id_counter}, t={self.t})")
@@ -97,7 +100,7 @@ class grid:
             raise TypeError(f"Cell with ID {parent_cell_id} is already activating or has no children to coarsen.")
 
         # Update parent prim
-        parent_cell.prim = np.zeros(parent_cell.prim.shape)
+        parent_cell.prim = np.zeros(np.array(parent_cell.prim).shape)
 
         for child_id in parent_cell.children:
             child = self.get_cell_by_id(child_id)
@@ -214,13 +217,15 @@ class grid:
                     active_cell[cell_id_after].need_coarse = True
 
 
-    def refine(self, **kwargs):
+    def refine(self, id_only=True, **kwargs):
         active_cell = self.get_all_active_cells(**kwargs)
 
         for c in active_cell:
-            if c.need_refine:
+            if c.need_refine and id_only:
                 self.refine_cell(c.id)
                 c.need_refine = False
+            if not id_only and c.level < self.max_level:
+                self.refine_cell(c.id)
 
     def coarse(self, **kwargs):
         active_cell = self.get_all_active_cells(**kwargs)

@@ -238,3 +238,71 @@ def solve(solver, grid, t_final, **kwargs):
     print("FINISHED")
     
     return history
+
+def new_solve(solver, grid, t_final, **kwargs):
+
+    t = 0
+
+    history = []
+
+    with tqdm(total=t_final, unit="s", desc="Solving Simulation") as pbar:
+        while t < t_final:
+            history.append(copy.deepcopy(grid))
+
+            grid.refine(id_only=False)
+            active_cells = grid.get_all_active_cells()
+            N = len(active_cells)
+            grid_prim = np.array([c.prim for c in active_cells])
+            U = prim2con_grid(grid_prim)
+            dx = np.array([c.dx for c in active_cells])
+
+            # Compute time step
+            dt_dict = calc_dt(grid)
+            dt = np.min(list(dt_dict.values()))
+
+            if t + dt > t_final:
+                dt = t_final - t
+
+            # Compute fluxes at interfaces
+            flux = np.zeros((N+1, 3))
+            for i in range(1,N):
+                flux[i] = solver(U[i-1], U[i])
+
+            # Boundary conditions on flux
+            flux[ 0] = flux[ 1]
+            flux[-1] = flux[-2]
+
+            # Update conserved variables
+            dU = (dt / dx)[:, np.newaxis] * (flux[1:] - flux[:-1])
+
+            U -= dU
+            grid.update(con2prim_grid(U))
+
+            # Update time and add to history
+            t += dt
+            grid.t = t
+
+            # To coarse or not to coarse
+            def new_flag(epsilon, **kwargs):
+                for c in range(0, N, 2):
+                    cell_l = active_cells[c]
+                    cell_r = active_cells[c+1]
+
+                    avg = (cell_l.prim + cell_r.prim) / 2
+
+                    diff_l = np.abs(cell_l.prim - avg)
+                    diff_r = np.abs(cell_r.prim - avg)
+
+                    #DEBUG_DIFF = np.concatenate([diff_l, diff_r])
+                    #print(np.max(DEBUG_DIFF), np.min(DEBUG_DIFF), np.mean(DEBUG_DIFF))
+
+                    if np.all(diff_l < epsilon) and np.all(diff_r < epsilon):
+                        grid.coarsen_cell(active_cells[c].parent)
+            
+            new_flag(**kwargs)
+
+            pbar.update(dt)
+
+    print("FINISHED")
+    
+    return history
