@@ -173,10 +173,6 @@ def calc_dt(grid_instance):
         rho_level = prim_level[:, 0]
         u_level = prim_level[:, 1]
 
-        # Prevent instability
-        rho_level = np.max(rho_level, np.finfo(float).eps)
-        p_level = np.max(p_level, np.finfo(float).eps)
-
         cs_level = np.sqrt(GAMMA * p_level / rho_level)
         c_level = np.abs(u_level) + cs_level
 
