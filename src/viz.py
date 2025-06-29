@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from matplotlib.animation import FuncAnimation
+import analytical
 
 def plot_amr_grid(grid_instance, title="AMR Grid Structure", label=False, ax=None):
     """
@@ -68,7 +69,7 @@ def plot_amr_grid(grid_instance, title="AMR Grid Structure", label=False, ax=Non
     if ax is None:
         plt.show()
 
-def plot_amr_value(grid, ax=None):
+def plot_amr_value(grid, ax=None, analytic=None):
     active_cells = grid.get_all_active_cells()
 
     prim = np.array([cell.prim for cell in active_cells])
@@ -92,6 +93,13 @@ def plot_amr_value(grid, ax=None):
     for i in range(len(ax)):
         ax[i].plot(X, prim[:, i])
 
+    if analytic is not None:
+        rho_ana, u_ana, P_ana = analytical.get_sod_solution(X, grid.t, *analytic)
+
+        ax[0].plot(X, rho_ana, '--')
+        ax[1].plot(X, u_ana, '--')
+        ax[2].plot(X, P_ana, '--')
+
     plt.tight_layout()
 
 def get_prim_history(grid_history):
@@ -112,7 +120,7 @@ def get_prim_history(grid_history):
     return rho, u, p, X
 
 
-def animate(history, filename=None, fps=10, dpi=100):
+def animate(history, filename=None, fps=10, dpi=100, analytic=None):
     """
     Creates and displays an animation of the AMR solution using the collected history data.
 
@@ -123,7 +131,6 @@ def animate(history, filename=None, fps=10, dpi=100):
     """
 
     fig, ax = plt.subplots(1, 4, figsize=(15, 5))
-    fig.suptitle("AMR Simulation Results")
 
     all_densities, all_speeds, all_pressures, all_X = get_prim_history(history)
 
@@ -153,6 +160,13 @@ def animate(history, filename=None, fps=10, dpi=100):
         ax[2].cla()
         ax[3].cla()
 
+        if analytic is not None:
+            rho_ana, u_ana, P_ana = analytical.get_sod_solution(all_X[frame_idx], history[frame_idx].t, *analytic)
+
+            ax[0].plot(all_X[frame_idx], rho_ana, '--')
+            ax[1].plot(all_X[frame_idx], u_ana, '--')
+            ax[2].plot(all_X[frame_idx], P_ana, '--')
+
         ax[0].set_xlabel(r"$x$")
         ax[0].set_ylabel(r"$\rho$")
         ax[0].plot(all_X[frame_idx], all_densities[frame_idx], 'b-')
@@ -175,6 +189,8 @@ def animate(history, filename=None, fps=10, dpi=100):
         ax[2].set_ylim(p_ymin, p_ymax)
 
         plot_amr_grid(history[frame_idx], ax=ax[3])
+
+        fig.suptitle(f"AMR Simulation Results at t={np.round(history[frame_idx].t, 2)} s")
 
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 

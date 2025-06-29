@@ -9,6 +9,7 @@ class grid:
         self.dx = {0: L/N}
         self.grid = {} 
         self.id_counter = 0
+        self.t = 0
 
         # Initialization
         for n in range(self.N):

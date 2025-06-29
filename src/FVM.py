@@ -3,8 +3,14 @@ import matplotlib.pyplot as plt
 import copy
 from tqdm import tqdm
     
-CFL = 0.5
+CFL = 0.75
 GAMMA = 1.4
+
+def get_gamma():
+    return GAMMA
+
+def get_CFL():
+    return CFL
 
 def update_CFL(new_CFL):
     global CFL
@@ -221,6 +227,7 @@ def solve(solver, grid, t_final, **kwargs):
 
             # Update time and add to history
             t += dt
+            grid.t = t
 
             grid.flag_cells(**kwargs)
             grid.refine()
