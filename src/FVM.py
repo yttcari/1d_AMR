@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
-
+import copy
+from tqdm import tqdm
+    
 CFL = 0.5
 GAMMA = 1.4
 
@@ -180,54 +182,52 @@ def calc_dt(grid_instance):
 
     return dt_per_level
 
-def solve(solver, grid, t_final):
+def solve(solver, grid, t_final, **kwargs):
 
     t = 0
 
     history = []
 
-    while t < t_final:
-        active_cells = grid.get_all_active_cells()
-        N = len(active_cells)
-        grid_prim = np.array([c.prim for c in active_cells])
-        U = prim2con_grid(grid_prim)
-        dx = np.array([c.dx for c in active_cells])
-        X = np.array([c.x for c in active_cells])
-        history.append(np.concatenate((X.reshape(-1, 1), U), axis=1))
+    with tqdm(total=t_final, unit="s", desc="Solving Simulation") as pbar:
+        while t < t_final:
+            active_cells = grid.get_all_active_cells()
+            N = len(active_cells)
+            grid_prim = np.array([c.prim for c in active_cells])
+            U = prim2con_grid(grid_prim)
+            dx = np.array([c.dx for c in active_cells])
+            history.append(copy.deepcopy(grid))
 
-        print(f"Timestep: {t} s")
-        # Compute time step
-        
-        # dt   = calc_dt(grid)
-        dt_dict = calc_dt(grid)
-        dt = np.min(list(dt_dict.values()))
+            # Compute time step
+            dt_dict = calc_dt(grid)
+            dt = np.min(list(dt_dict.values()))
 
-        if t + dt > t_final:
-            dt = t_final - t
+            if t + dt > t_final:
+                dt = t_final - t
 
-        # Compute fluxes at interfaces
-        flux = np.zeros((N+1, 3))
-        for i in range(1,N):
-            flux[i] = solver(U[i-1], U[i])
+            # Compute fluxes at interfaces
+            flux = np.zeros((N+1, 3))
+            for i in range(1,N):
+                flux[i] = solver(U[i-1], U[i])
 
-        # Boundary conditions on flux
-        flux[ 0] = flux[ 1]
-        flux[-1] = flux[-2]
+            # Boundary conditions on flux
+            flux[ 0] = flux[ 1]
+            flux[-1] = flux[-2]
 
-        # Update conserved variables
-        dU = (dt / dx)[:, np.newaxis] * (flux[1:] - flux[:-1])
+            # Update conserved variables
+            dU = (dt / dx)[:, np.newaxis] * (flux[1:] - flux[:-1])
 
-        U -= dU
-        grid.update(con2prim_grid(U))
+            U -= dU
+            grid.update(con2prim_grid(U))
 
-        # Update time and add to history
-        t += dt
+            # Update time and add to history
+            t += dt
 
-        grid.flag_cells()
-        grid.refine()
-        grid.coarse()
+            grid.flag_cells(**kwargs)
+            grid.refine()
+            grid.coarse()
+
+            pbar.update(dt)
 
     print("FINISHED")
-    
     
     return history

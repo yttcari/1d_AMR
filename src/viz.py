@@ -1,8 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 from matplotlib.animation import FuncAnimation
 
-def plot_amr_grid(grid_instance, title="AMR Grid Structure", label=False):
+def plot_amr_grid(grid_instance, title="AMR Grid Structure", label=False, ax=None):
     """
     Plots the 1D AMR grid hierarchy on a number line.
     Visualizes 'activating' cells (leaf nodes) using their level for vertical offset.
@@ -20,7 +21,8 @@ def plot_amr_grid(grid_instance, title="AMR Grid Structure", label=False):
     max_level = max(cell_obj.level for cell_obj in active_cells) if active_cells else 0
     y_offset_multiplier = 0.05 * (max_x - min_x) # Adjust for desired vertical spacing
 
-    fig, ax = plt.subplots(figsize=(12, 6))
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(12, 6))
 
     plotted_levels = set() # To ensure unique labels in legend
 
@@ -63,7 +65,8 @@ def plot_amr_grid(grid_instance, title="AMR Grid Structure", label=False):
         ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
 
     plt.tight_layout()
-    plt.show()
+    if ax is None:
+        plt.show()
 
 def plot_amr_value(grid, ax=None):
     active_cells = grid.get_all_active_cells()
@@ -91,6 +94,24 @@ def plot_amr_value(grid, ax=None):
 
     plt.tight_layout()
 
+def get_prim_history(grid_history):
+    T = len(grid_history)
+
+    rho, u, p, X = [], [], [], []
+
+    for t in range(T):
+        grid = grid_history[t]
+        active_cell = grid.get_all_active_cells()
+
+        prim = np.array([c.prim for c in active_cell])
+        rho.append(prim[:, 0])
+        u.append(prim[:, 1])
+        p.append(prim[:, 2])
+        X.append([c.x for c in active_cell])
+
+    return rho, u, p, X
+
+
 def animate(history, filename=None, fps=10, dpi=100):
     """
     Creates and displays an animation of the AMR solution using the collected history data.
@@ -101,16 +122,19 @@ def animate(history, filename=None, fps=10, dpi=100):
         fps (int): Frames per second for the animation.
     """
 
-    fig, ax = plt.subplots(1, 3, figsize=(15, 5))
+    fig, ax = plt.subplots(1, 4, figsize=(15, 5))
     fig.suptitle("AMR Simulation Results")
 
-    all_densities = np.concatenate([h[:,0] for h in history])
-    all_speeds = np.concatenate([h[:,1] for h in history])
-    all_pressures = np.concatenate([h[:,2] for h in history])
+    all_densities, all_speeds, all_pressures, all_X = get_prim_history(history)
 
-    ax[0].set_ylim(all_densities.min() * 0.95, all_densities.max() * 1.05)
-    ax[1].set_ylim(all_speeds.min() * 0.95 - 0.1, all_speeds.max() * 1.05 + 0.1)
-    ax[2].set_ylim(all_pressures.min() * 0.95, all_pressures.max() * 1.05)
+    rho_ymin, rho_ymax = np.min(np.concatenate(all_densities)) * 0.95, np.max(np.concatenate(all_densities)) * 1.05
+    u_ymin, u_ymax = np.min(np.concatenate(all_speeds)) * 0.95 - 0.1, np.max(np.concatenate(all_speeds)) * 1.05 + 0.1
+    p_ymin, p_ymax = np.min(np.concatenate(all_pressures)) * 0.95, np.max(np.concatenate(all_pressures)) * 1.05
+
+    ax[0].set_ylim(rho_ymin, rho_ymax)
+    ax[1].set_ylim(u_ymin, u_ymax)
+    ax[2].set_ylim(p_ymin, p_ymax)
+
 
     x_min_global = 0.0
     x_max_global = 1.0
@@ -123,39 +147,38 @@ def animate(history, filename=None, fps=10, dpi=100):
         Update function for FuncAnimation. This function is called for each frame
         and updates the plot with the data for that frame_idx.
         """
-        snapshot = history[frame_idx]
-        X_current = snapshot[:, 0]
-        prim_current = snapshot[:, 1:]
 
         ax[0].cla()
         ax[1].cla()
         ax[2].cla()
+        ax[3].cla()
 
         ax[0].set_xlabel(r"$x$")
         ax[0].set_ylabel(r"$\rho$")
-        ax[0].plot(X_current, prim_current[:, 0], 'b-')
+        ax[0].plot(all_X[frame_idx], all_densities[frame_idx], 'b-')
         ax[0].set_xlim(x_min_global, x_max_global) 
-        ax[0].set_ylim(all_densities.min() * 0.95, all_densities.max() * 1.05)
-
+        ax[0].set_ylim(rho_ymin, rho_ymax)
 
         ax[1].set_xlabel(r"$x$")
         ax[1].set_ylabel(r"$u$")
         ax[1].set_title("Speed")
-        ax[1].plot(X_current, prim_current[:, 1], 'g-')
+        ax[1].plot(all_X[frame_idx], all_speeds[frame_idx], 'g-')
         ax[1].set_xlim(x_min_global, x_max_global)
-        ax[1].set_ylim(all_speeds.min() * 0.95 - 0.1, all_speeds.max() * 1.05 + 0.1)
+        ax[1].set_ylim(u_ymin, u_ymax)
 
 
         ax[2].set_xlabel(r"$x$")
         ax[2].set_ylabel(r"$P$")
         ax[2].set_title("Pressure")
-        ax[2].plot(X_current, prim_current[:, 2], 'r-')
+        ax[2].plot(all_X[frame_idx], all_pressures[frame_idx], 'r-')
         ax[2].set_xlim(x_min_global, x_max_global)
-        ax[2].set_ylim(all_pressures.min() * 0.95, all_pressures.max() * 1.05)
+        ax[2].set_ylim(p_ymin, p_ymax)
+
+        plot_amr_grid(history[frame_idx], ax=ax[3])
 
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
     print(f"Preparing animation with {len(history)} frames for display...")
-    ani = FuncAnimation(fig, update, frames=len(history), interval=1000/fps, blit=False)
+    ani = FuncAnimation(fig, update, frames=tqdm(range(len(history))), interval=1000/fps, blit=False)
     if filename is not None:
         ani.save(filename, writer='pillow', fps=fps, dpi=dpi)

@@ -145,7 +145,7 @@ class grid:
 
         return cells_by_level
     
-    def flag_cells(self, refine_epsilon=0.01, buffer_layers=1, max_level=3, corase_epsilon=0.01):
+    def flag_cells(self, refine_epsilon=0.5, buffer_layers=1, max_level=3, corase_epsilon=0.3, **kwargs):
         active_cell = self.get_all_active_cells()
         N = len(active_cell)
 
@@ -167,10 +167,10 @@ class grid:
 
         # Central difference
         dU = prim_with_gc[2:, :] - prim_with_gc[:-2, :]
-        dx = X_with_gc[2:] - X_with_gc[:-2]
+        #dx = X_with_gc[2:] - X_with_gc[:-2]
 
-        grad = np.abs(dU / dx[:, np.newaxis])
-
+        grad = np.abs(dU)
+        #print(f"Average Gradient: {np.round(np.average(grad), 2)}, Max: {np.round(np.max(grad), 2)}, Min: {np.round(np.min(grad), 2)}")
         refine_cell_index = np.unique(np.where(grad > refine_epsilon)[0])
         coarse_cell_index = np.unique(np.where(grad < corase_epsilon)[0])
 
