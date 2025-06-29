@@ -20,6 +20,9 @@ class grid:
 
         self.max_level = 0
 
+    def __repr__(self):
+        return(f"(L={self.L}, N={self.N}, dx={self.dx}, grid={self.grid}, id_counter={self.id_counter}, t={self.t})")
+
     def get_next_id(self):
         """Generates a unique ID for a new cell."""
         new_id_val = self.id_counter
@@ -82,23 +85,26 @@ class grid:
         self.grid[child_left_id] = child_left
         self.grid[child_right_id] = child_right
 
-        if child_level > self.max_level:
-            self.max_level += 1
-            self.dx[child_level] = child_left.dx
-
         return child_left_id, child_right_id
 
     def coarsen_cell(self, parent_cell_id):
-        """
-        Coarsens a specified parent cell by removing its children from the hierarchy.
-        Removes children (and their sub-children) from the central grid dictionary.
-        """
+        
         parent_cell = self.get_cell_by_id(parent_cell_id)
         if not parent_cell:
             raise ValueError(f"Error: Parent cell with ID {parent_cell_id} not found for coarsening.")
 
         if parent_cell.activating or not parent_cell.children:
             raise TypeError(f"Cell with ID {parent_cell_id} is already activating or has no children to coarsen.")
+
+        # Update parent prim
+        parent_cell.prim = np.zeros(parent_cell.prim.shape)
+
+        for child_id in parent_cell.children:
+            child = self.get_cell_by_id(child_id)
+
+            parent_cell.prim += child.prim
+
+        parent_cell.prim /= len(parent_cell.children)
 
         # Recursively remove children
         def _remove_subtree_from_grid(cell_id_to_remove):
@@ -112,7 +118,7 @@ class grid:
         for child_id in list(parent_cell.children):
             _remove_subtree_from_grid(child_id)
 
-        parent_cell.children = [] 
+        parent_cell.children = []
         parent_cell.activating = True
 
     def update(self, prim):
@@ -220,6 +226,6 @@ class grid:
         active_cell = self.get_all_active_cells(**kwargs)
 
         for c in active_cell:
-            if c.need_refine:
-                self.coarsen_cell(c.id)
+            if c.need_coarse and c.id in self.grid:
+                self.coarsen_cell(c.parent)
                 c.need_coarse = False
