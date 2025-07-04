@@ -18,7 +18,7 @@ class grid:
                             id=cell_id)
             self.grid[cell_id] = new_cell 
 
-        self.max_level = 3
+        self.max_level = 5
 
     def update_max_level(self, new_max):
         self.max_level = new_max
@@ -152,7 +152,7 @@ class grid:
 
         return cells_by_level
     
-    def flag_cells(self, refine_epsilon=0.5, buffer_layers=1, max_level=3, corase_epsilon=0.3, **kwargs):
+    def flag_cells(self, refine_epsilon=0.5, buffer_layers=1, corase_epsilon=0.3, **kwargs):
         active_cell = self.get_all_active_cells()
         N = len(active_cell)
 
@@ -171,6 +171,8 @@ class grid:
 
         X_with_gc[0] = 0 - X_with_gc[1]
         X_with_gc[-1] = self.L + (self.L - X_with_gc[-2])
+        
+        # TODO: Check Order, re-write ghost cell outside this function?
 
         # Central difference
         dU = prim_with_gc[2:, :] - prim_with_gc[:-2, :]
@@ -183,7 +185,7 @@ class grid:
 
         # find cell to be flagged
         for i in refine_cell_index:
-            if active_cell[i].level < max_level:
+            if active_cell[i].level < self.max_level:
                 active_cell[i].need_refine = True
 
             for buffer_no in range(1, buffer_layers+1):
@@ -193,10 +195,10 @@ class grid:
                 cell_bef = active_cell[cell_id_bef]
                 cell_after = active_cell[cell_id_after]
 
-                if cell_bef.level < max_level:
+                if cell_bef.level < self.max_level:
                     cell_bef.need_refine = True
 
-                if cell_after.level < max_level:
+                if cell_after.level < self.max_level:
                     cell_after.need_refine = True
 
         for i in coarse_cell_index:

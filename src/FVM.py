@@ -6,6 +6,7 @@ from tqdm import tqdm
 CFL = 0.5
 GAMMA = 1.4
 
+############### Global Variable ###############
 def get_gamma():
     return GAMMA
 
@@ -22,6 +23,7 @@ def update_GAMMA(new_GAMMA):
 
     GAMMA = new_GAMMA
 
+############### Parameter Update ###############
 def prim2con(prim):
     """
     Input: primitive variable [rho, u, p]
@@ -74,7 +76,8 @@ def con2prim_grid(U_values):
         if rho <= 0: rho = 1e-10
         u_vel = mom / rho
         internal_energy = energy - 0.5 * rho * u_vel**2
-        if internal_energy < 0: internal_energy = 1e-10
+        if internal_energy < 0: 
+            internal_energy = 1e-10
 
         pressure = internal_energy * (GAMMA - 1)
         
@@ -90,6 +93,7 @@ def prim2con_grid(con):
 
     return np.array(tmp)
 
+############### Solver ###############
 
 def HLL_flux(UL, UR):
     # Convert to primitive variables
@@ -129,23 +133,50 @@ def HLL_flux(UL, UR):
     else:
         return FR
 
-""" SAME dx ONLY
-def calc_dt(grid):
-    active_cells = grid.get_all_active_cells()
+def godunov(U, solver, dt, dx, N, **kwargs):
+    flux = np.zeros((N+1, 3))
+    for i in range(1,N):
+        flux[i] = solver(U[i-1], U[i])
 
-    prim = np.array([c.prim for c in active_cells])
-    dx = np.array(list(grid.dx.values()))
+    # Boundary conditions on flux
+    flux[ 0] = flux[ 1]
+    flux[-1] = flux[-2]
 
-    p = prim[:, 2]
-    rho = prim[:, 0]
-    u = prim[:, 1]
+    # Update conserved variables
+    dU = (dt / dx)[:, np.newaxis] * (flux[1:] - flux[:-1])
 
-    cs   = np.sqrt(GAMMA * p / rho)
-    c = np.min(np.abs(u) + cs)
+    return dU # U -= dU
 
-    dt = CFL * (dx / c)
-    return dt
-"""
+def MUSCL(U, solver, dt, dx, N, X, **kwargs):
+    def minmod(U, X):
+        slope_dx = X[1:] - X[:-1]
+        slope_plus = np.zeros_like(U)
+        slope_minus = np.zeros_like(U)
+
+        slope_minus[1:] = (U[1:] - U[:-1]) / slope_dx[:, np.newaxis]
+        slope_plus[:-1] = (U[1:] - U[:-1]) / slope_dx[:, np.newaxis]
+
+        sigma = np.where(slope_minus * slope_plus < 0.0, 0.0,  np.where(np.abs(slope_minus) < np.abs(slope_plus), slope_minus, slope_plus))
+
+        return sigma
+    
+    flux = np.zeros((N+1, 3))
+
+    sigma = minmod(U, X)
+
+    UL = U + 0.5 * dx[:, np.newaxis] * sigma
+    UR = U - 0.5 * dx[:, np.newaxis] * sigma
+
+    for i in range(1, N): 
+        flux[i] = solver(UR[i-1], UL[i]) 
+    
+    flux[0] = flux[1]
+    flux[-1] = flux[-2]
+
+    dU = (dt / dx)[:, np.newaxis] * (flux[1:] - flux[:-1])
+
+    return dU
+
 
 def calc_dt(grid_instance):
     """
@@ -184,18 +215,29 @@ def calc_dt(grid_instance):
 
     return dt_per_level
 
-def solve(solver, grid, t_final, **kwargs):
+def method(order):
+    if order == 1:
+        print("Using Godunov Method")
+        return godunov
+    if order == 2:
+        print("Using MUSCL")
+        return MUSCL
+
+############### Simulation ###############
+
+def solve(solver, grid, t_final, order=1, **kwargs):
 
     t = 0
-
+    calc_dU = method(order)
     history = []
-
+    
     with tqdm(total=t_final, unit="s", desc="Solving Simulation") as pbar:
         while t < t_final:
             active_cells = grid.get_all_active_cells()
             N = len(active_cells)
             grid_prim = np.array([c.prim for c in active_cells])
             U = prim2con_grid(grid_prim)
+            X = np.array([c.x for c in active_cells])
             dx = np.array([c.dx for c in active_cells])
             history.append(copy.deepcopy(grid))
 
@@ -216,7 +258,7 @@ def solve(solver, grid, t_final, **kwargs):
             flux[-1] = flux[-2]
 
             # Update conserved variables
-            dU = (dt / dx)[:, np.newaxis] * (flux[1:] - flux[:-1])
+            dU = calc_dU(U=U, solver=solver, dt=dt, dx=dx, N=N, X=X)
 
             U -= dU
             grid.update(con2prim_grid(U))
@@ -235,10 +277,10 @@ def solve(solver, grid, t_final, **kwargs):
     
     return history
 
-def new_solve(solver, grid, t_final, **kwargs):
+def new_solve(solver, grid, t_final, order=1, **kwargs):
 
     t = 0
-
+    calc_dU = method(order)
     history = []
 
     with tqdm(total=t_final, unit="s", desc="Solving Simulation") as pbar:
@@ -249,6 +291,7 @@ def new_solve(solver, grid, t_final, **kwargs):
             active_cells = grid.get_all_active_cells()
             N = len(active_cells)
             grid_prim = np.array([c.prim for c in active_cells])
+            X = np.array([c.x for c in active_cells])
             U = prim2con_grid(grid_prim)
             dx = np.array([c.dx for c in active_cells])
 
@@ -260,16 +303,7 @@ def new_solve(solver, grid, t_final, **kwargs):
                 dt = t_final - t
 
             # Compute fluxes at interfaces
-            flux = np.zeros((N+1, 3))
-            for i in range(1,N):
-                flux[i] = solver(U[i-1], U[i])
-
-            # Boundary conditions on flux
-            flux[ 0] = flux[ 1]
-            flux[-1] = flux[-2]
-
-            # Update conserved variables
-            dU = (dt / dx)[:, np.newaxis] * (flux[1:] - flux[:-1])
+            dU = calc_dU(U=U, solver=solver, dt=dt, dx=dx, N=N, X=X)
 
             U -= dU
             grid.update(con2prim_grid(U))
