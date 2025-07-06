@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import copy
 from tqdm import tqdm
     
-CFL = 0.5
+CFL = 0.5   
 GAMMA = 1.4
 
 ############### Global Variable ###############
@@ -134,49 +134,102 @@ def HLL_flux(UL, UR):
         return FR
 
 def godunov(U, solver, dt, dx, N, **kwargs):
-    flux = np.zeros((N+1, 3))
-    for i in range(1,N):
-        flux[i] = solver(U[i-1], U[i])
-
-    # Boundary conditions on flux
-    flux[ 0] = flux[ 1]
-    flux[-1] = flux[-2]
-
-    # Update conserved variables
-    dU = (dt / dx)[:, np.newaxis] * (flux[1:] - flux[:-1])
-
-    return dU # U -= dU
-
-def MUSCL(U, solver, dt, dx, N, X, **kwargs):
-    def minmod(U, X):
-        slope_dx = X[1:] - X[:-1]
-        slope_plus = np.zeros_like(U)
-        slope_minus = np.zeros_like(U)
-
-        slope_minus[1:] = (U[1:] - U[:-1]) / slope_dx[:, np.newaxis]
-        slope_plus[:-1] = (U[1:] - U[:-1]) / slope_dx[:, np.newaxis]
-
-        sigma = np.where(slope_minus * slope_plus < 0.0, 0.0,  np.where(np.abs(slope_minus) < np.abs(slope_plus), slope_minus, slope_plus))
-
-        return sigma
-    
-    flux = np.zeros((N+1, 3))
-
-    sigma = minmod(U, X)
-
-    UL = U + 0.5 * dx[:, np.newaxis] * sigma
-    UR = U - 0.5 * dx[:, np.newaxis] * sigma
-
-    for i in range(1, N): 
-        flux[i] = solver(UR[i-1], UL[i]) 
-    
-    flux[0] = flux[1]
-    flux[-1] = flux[-2]
-
-    dU = (dt / dx)[:, np.newaxis] * (flux[1:] - flux[:-1])
+    num_vars = U.shape[1]
+    flux = np.zeros((N + 1, num_vars))
+    for i in range(N + 1):
+        flux[i] = solver(U[i], U[i+1])
+    dU = (dt / dx[:, np.newaxis]) * (flux[1:N+1] - flux[0:N])
 
     return dU
 
+def MUSCL(U, solver, dt, dx, N, X, **kwargs):
+    num_vars = U.shape[1]
+
+    def minmod(U_arr, X_arr):
+        dX = X_arr[1:] - X_arr[:-1]
+
+        slope_minus = np.zeros_like(U_arr)
+        slope_plus = np.zeros_like(U_arr)
+
+        slope_minus[1:] = (U_arr[1:] - U_arr[:-1]) / dX[:, np.newaxis]
+        
+        slope_plus[:-1] = (U_arr[1:] - U_arr[:-1]) / dX[:, np.newaxis]
+
+        sigma = np.where(slope_minus * slope_plus < 0.0, 0.0,
+                         np.where(np.abs(slope_minus) < np.abs(slope_plus), slope_minus, slope_plus))
+        return sigma
+    
+    sigma_gc = minmod(U, X)
+
+    dx_gc = np.zeros(N + 2)
+    dx_gc[0] = dx[0]         # dx for the left ghost cell
+    dx_gc[1:N+1] = dx        # dx for the N computational cells
+    dx_gc[N+1] = dx[-1]      # dx for the right ghost cell
+
+    UL_gc = U + 0.5 * dx_gc[:, np.newaxis] * sigma_gc
+    UR_gc = U - 0.5 * dx_gc[:, np.newaxis] * sigma_gc
+
+    flux = np.zeros((N + 1, num_vars))
+
+    for i in range(N + 1):
+        flux[i] = solver(UL_gc[i], UR_gc[i+1])
+    
+    dU = (dt / dx[:, np.newaxis]) * (flux[1:N+1] - flux[0:N])
+
+    return dU
+
+def WENO(U, solver, dt, dx, N, X, **kwargs):
+    num_vars = U.shape[1]
+    epsilon = 1e-6
+
+    d_L = np.array([1/10, 6/10, 3/10])
+
+    def weno5_reconstruct_single_var(u_five_points):
+    
+        v0, v1, v2, v3, v4 = u_five_points
+        d = d_L 
+
+        q0 = (1/3) * v0 - (7/6) * v1 + (11/6) * v2
+        q1 = -(1/6) * v1 + (5/6) * v2 + (1/3) * v3
+        q2 = (1/3) * v2 + (5/6) * v3 - (1/6) * v4
+
+        # Smoothness indicators beta_k.
+        beta0 = (13/12) * (v0 - 2*v1 + v2)**2 + (1/4) * (v0 - 4*v1 + 3*v2)**2
+        beta1 = (13/12) * (v1 - 2*v2 + v3)**2 + (1/4) * (v1 - v3)**2
+        beta2 = (13/12) * (v2 - 2*v3 + v4)**2 + (1/4) * (3*v2 - 4*v3 + v4)**2
+        betas = np.array([beta0, beta1, beta2])
+
+        # Calculate alpha_k, which are intermediate weights.
+        alphas = d / (epsilon + betas)**2
+        
+        # Calculate non-linear weights omega_k.
+        omega_sum = np.sum(alphas)
+        if omega_sum == 0:
+            omegas = d # Fallback to linear weights if sum is zero
+        else:
+            omegas = alphas / omega_sum
+
+        reconstructed_val = omegas[0] * q0 + omegas[1] * q1 + omegas[2] * q2
+        return reconstructed_val
+
+    UL_cell = np.zeros((N + 2, num_vars))
+    UR_cell = np.zeros((N + 2, num_vars))
+
+    for k in range(N + 2):
+
+        for var_idx in range(num_vars):
+            UL_cell[k, var_idx] = weno5_reconstruct_single_var(U[k:k+5, var_idx])
+
+        for var_idx in range(num_vars):
+            UR_cell[k, var_idx] = weno5_reconstruct_single_var(U[k:k+5, var_idx][::-1])
+
+    flux = np.zeros((N + 1, num_vars))
+    for i in range(N + 1):
+        flux[i] = solver(UL_cell[i], UR_cell[i+1])
+
+    dU = (dt / dx[:, np.newaxis]) * (flux[1:N+1] - flux[0:N])
+
+    return dU
 
 def calc_dt(grid_instance):
     """
@@ -222,6 +275,9 @@ def method(order):
     if order == 2:
         print("Using MUSCL")
         return MUSCL
+    if order == 5:
+        print("Using WENO")
+        return WENO
 
 ############### Simulation ###############
 
@@ -249,16 +305,10 @@ def solve(solver, grid, t_final, order=1, **kwargs):
                 dt = t_final - t
 
             # Compute fluxes at interfaces
-            flux = np.zeros((N+1, 3))
-            for i in range(1,N):
-                flux[i] = solver(U[i-1], U[i])
-
-            # Boundary conditions on flux
-            flux[ 0] = flux[ 1]
-            flux[-1] = flux[-2]
+            U_gc, X_gc = grid.generate_gc(U, X)
 
             # Update conserved variables
-            dU = calc_dU(U=U, solver=solver, dt=dt, dx=dx, N=N, X=X)
+            dU = calc_dU(U=U_gc, solver=solver, dt=dt, dx=dx, N=N, X=X_gc)
 
             U -= dU
             grid.update(con2prim_grid(U))
@@ -303,7 +353,10 @@ def new_solve(solver, grid, t_final, order=1, **kwargs):
                 dt = t_final - t
 
             # Compute fluxes at interfaces
-            dU = calc_dU(U=U, solver=solver, dt=dt, dx=dx, N=N, X=X)
+            U_gc, X_gc = grid.generate_gc(U, X)
+
+            # Compute fluxes at interfaces
+            dU = calc_dU(U=U_gc, solver=solver, dt=dt, dx=dx, N=N, X=X_gc)
 
             U -= dU
             grid.update(con2prim_grid(U))
