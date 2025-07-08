@@ -1,6 +1,7 @@
 import numpy as np
 import cell
-
+import FVM
+from reconstruct import generate_gc
 # Grid that stores box
 class grid:
     def __init__(self, L, N):
@@ -173,7 +174,7 @@ class grid:
         X_with_gc[0] = 0 - X_with_gc[1]
         X_with_gc[-1] = self.L + (self.L - X_with_gc[-2])
         """
-        prim_with_gc, X_with_gc = self.generate_gc(prim, X, order=0)
+        prim_with_gc, X_with_gc = generate_gc(prim, X, order=0, NG=1)
 
         # Central difference
         dU = prim_with_gc[2:, :] - prim_with_gc[:-2, :]
@@ -234,27 +235,3 @@ class grid:
             if c.need_coarse and c.id in self.grid:
                 self.coarsen_cell(c.parent)
                 c.need_coarse = False
-
-    def generate_gc(self, U, X, order=0):
-        # U: e.g., prim or U
-        # X: cell center coordinates
-        N = U.shape[0]
-        num_vars = U.shape[1] if U.ndim > 1 else 1
-
-        data_with_gc = np.zeros((N + 2, num_vars))
-        X_with_gc = np.zeros(N + 2)
-
-        data_with_gc[1:-1] = U
-        X_with_gc[1:-1] = X
-
-        if order == 0:
-            data_with_gc[0, :] = data_with_gc[1, :]
-            data_with_gc[-1, :] = data_with_gc[-2, :]
-
-            dx_left = X_with_gc[2] - X_with_gc[1]
-            dx_right = X_with_gc[-2] - X_with_gc[-3] #
-
-            X_with_gc[0] = X_with_gc[1] - dx_left
-            X_with_gc[-1] = X_with_gc[-2] + dx_right
-
-        return data_with_gc, X_with_gc

@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import copy
 from tqdm import tqdm
+from reconstruct import *
     
 CFL = 0.5   
 GAMMA = 1.4
@@ -133,104 +134,6 @@ def HLL_flux(UL, UR):
     else:
         return FR
 
-def godunov(U, solver, dt, dx, N, **kwargs):
-    num_vars = U.shape[1]
-    flux = np.zeros((N + 1, num_vars))
-    for i in range(N + 1):
-        flux[i] = solver(U[i], U[i+1])
-    dU = (dt / dx[:, np.newaxis]) * (flux[1:N+1] - flux[0:N])
-
-    return dU
-
-def MUSCL(U, solver, dt, dx, N, X, **kwargs):
-    num_vars = U.shape[1]
-
-    def minmod(U_arr, X_arr):
-        dX = X_arr[1:] - X_arr[:-1]
-
-        slope_minus = np.zeros_like(U_arr)
-        slope_plus = np.zeros_like(U_arr)
-
-        slope_minus[1:] = (U_arr[1:] - U_arr[:-1]) / dX[:, np.newaxis]
-        
-        slope_plus[:-1] = (U_arr[1:] - U_arr[:-1]) / dX[:, np.newaxis]
-
-        sigma = np.where(slope_minus * slope_plus < 0.0, 0.0,
-                         np.where(np.abs(slope_minus) < np.abs(slope_plus), slope_minus, slope_plus))
-        return sigma
-    
-    sigma_gc = minmod(U, X)
-
-    dx_gc = np.zeros(N + 2)
-    dx_gc[0] = dx[0]         # dx for the left ghost cell
-    dx_gc[1:N+1] = dx        # dx for the N computational cells
-    dx_gc[N+1] = dx[-1]      # dx for the right ghost cell
-
-    UL_gc = U + 0.5 * dx_gc[:, np.newaxis] * sigma_gc
-    UR_gc = U - 0.5 * dx_gc[:, np.newaxis] * sigma_gc
-
-    flux = np.zeros((N + 1, num_vars))
-
-    for i in range(N + 1):
-        flux[i] = solver(UL_gc[i], UR_gc[i+1])
-    
-    dU = (dt / dx[:, np.newaxis]) * (flux[1:N+1] - flux[0:N])
-
-    return dU
-
-def WENO(U, solver, dt, dx, N, X, **kwargs):
-    num_vars = U.shape[1]
-    epsilon = 1e-6
-
-    d_L = np.array([1/10, 6/10, 3/10])
-
-    def weno5_reconstruct_single_var(u_five_points):
-    
-        v0, v1, v2, v3, v4 = u_five_points
-        d = d_L 
-
-        q0 = (1/3) * v0 - (7/6) * v1 + (11/6) * v2
-        q1 = -(1/6) * v1 + (5/6) * v2 + (1/3) * v3
-        q2 = (1/3) * v2 + (5/6) * v3 - (1/6) * v4
-
-        # Smoothness indicators beta_k.
-        beta0 = (13/12) * (v0 - 2*v1 + v2)**2 + (1/4) * (v0 - 4*v1 + 3*v2)**2
-        beta1 = (13/12) * (v1 - 2*v2 + v3)**2 + (1/4) * (v1 - v3)**2
-        beta2 = (13/12) * (v2 - 2*v3 + v4)**2 + (1/4) * (3*v2 - 4*v3 + v4)**2
-        betas = np.array([beta0, beta1, beta2])
-
-        # Calculate alpha_k, which are intermediate weights.
-        alphas = d / (epsilon + betas)**2
-        
-        # Calculate non-linear weights omega_k.
-        omega_sum = np.sum(alphas)
-        if omega_sum == 0:
-            omegas = d # Fallback to linear weights if sum is zero
-        else:
-            omegas = alphas / omega_sum
-
-        reconstructed_val = omegas[0] * q0 + omegas[1] * q1 + omegas[2] * q2
-        return reconstructed_val
-
-    UL_cell = np.zeros((N + 2, num_vars))
-    UR_cell = np.zeros((N + 2, num_vars))
-
-    for k in range(N + 2):
-
-        for var_idx in range(num_vars):
-            UL_cell[k, var_idx] = weno5_reconstruct_single_var(U[k:k+5, var_idx])
-
-        for var_idx in range(num_vars):
-            UR_cell[k, var_idx] = weno5_reconstruct_single_var(U[k:k+5, var_idx][::-1])
-
-    flux = np.zeros((N + 1, num_vars))
-    for i in range(N + 1):
-        flux[i] = solver(UL_cell[i], UR_cell[i+1])
-
-    dU = (dt / dx[:, np.newaxis]) * (flux[1:N+1] - flux[0:N])
-
-    return dU
-
 def calc_dt(grid_instance):
     """
     Calculates the maximum allowable time step (dt) for each refinement level
@@ -268,23 +171,33 @@ def calc_dt(grid_instance):
 
     return dt_per_level
 
-def method(order):
-    if order == 1:
-        print("Using Godunov Method")
-        return godunov
-    if order == 2:
-        print("Using MUSCL")
-        return MUSCL
-    if order == 5:
-        print("Using WENO")
-        return WENO
+def dx_method(type, **kwargs):
+    if type == 'godunov':
+        return godunov(**kwargs)
+    if type == 'MUSCL':
+        return MUSCL(**kwargs)
+    if type == 'WENO':
+        return WENO(**kwargs)
+    
+def dt_method(dt_type, dx_type, U, **kwargs):
+    if dt_type == 'euler':
+        dU = dx_method(dx_type, U=U, **kwargs)
+        return dU
+    elif dt_type == 'rk4':
+        k1 = dx_method(dx_type, U=U, **kwargs)
+        k2 = dx_method(dx_type, U=U + 0.5 * k1, **kwargs)
+        k3 = dx_method(dx_type, U=U + k2 * 0.5, **kwargs)
+        k4 = dx_method(dx_type, U=U + k3, **kwargs)
+        
+        return (k1 + 2 * k2 + 2 * k3 + k4) / 6
+
 
 ############### Simulation ###############
 
-def solve(solver, grid, t_final, order=1, **kwargs):
+def solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4', **kwargs):
 
     t = 0
-    calc_dU = method(order)
+    print(f"Using {dx_type} in spatial and {dt_type} in temporal.")
     history = []
     
     with tqdm(total=t_final, unit="s", desc="Solving Simulation") as pbar:
@@ -304,13 +217,10 @@ def solve(solver, grid, t_final, order=1, **kwargs):
             if t + dt > t_final:
                 dt = t_final - t
 
-            # Compute fluxes at interfaces
-            U_gc, X_gc = grid.generate_gc(U, X)
-
             # Update conserved variables
-            dU = calc_dU(U=U_gc, solver=solver, dt=dt, dx=dx, N=N, X=X_gc)
+            dU = dt_method(U=U, solver=solver, dt=dt, dx=dx, N=N, X=X, dt_type=dt_type, dx_type=dx_type)
 
-            U -= dU
+            U += dU
             grid.update(con2prim_grid(U))
 
             # Update time and add to history
@@ -327,10 +237,10 @@ def solve(solver, grid, t_final, order=1, **kwargs):
     
     return history
 
-def new_solve(solver, grid, t_final, order=1, **kwargs):
+def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
 
     t = 0
-    calc_dU = method(order)
+    print(f"Using {dx_type} in spatial and {dt_type} in temporal.")
     history = []
 
     with tqdm(total=t_final, unit="s", desc="Solving Simulation") as pbar:
@@ -352,13 +262,9 @@ def new_solve(solver, grid, t_final, order=1, **kwargs):
             if t + dt > t_final:
                 dt = t_final - t
 
-            # Compute fluxes at interfaces
-            U_gc, X_gc = grid.generate_gc(U, X)
+            dU = dt_method(U=U, solver=solver, dt=dt, dx=dx, N=N, X=X, dt_type=dt_type, dx_type=dx_type)
 
-            # Compute fluxes at interfaces
-            dU = calc_dU(U=U_gc, solver=solver, dt=dt, dx=dx, N=N, X=X_gc)
-
-            U -= dU
+            U += dU
             grid.update(con2prim_grid(U))
 
             # Update time and add to history
