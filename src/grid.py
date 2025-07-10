@@ -1,7 +1,6 @@
 import numpy as np
 import cell
-import FVM
-from reconstruct import generate_gc
+from reconstruct import generate_gc, minmod
 # Grid that stores box
 class grid:
     def __init__(self, L, N):
@@ -52,10 +51,10 @@ class grid:
         return active_cell
 
 
-    def refine_cell(self, parent_cell_id):
+    def refine_cell(self, parent_cell_id, active_cells):
         """
-        Refines a specified parent cell into two children.
-        Manages ID assignment, updates cell links (parent/children), and updates the grid dictionary.
+        Refines a specified parent cell into two children using linear interpolation.
+        Uses minmod slope limiter for second-order accurate interpolation.
         """
         parent_cell = self.get_cell_by_id(parent_cell_id)
         if not parent_cell:
@@ -64,18 +63,53 @@ class grid:
         if not parent_cell.activating: # Already refined
             raise TypeError(f"Cell with ID {parent_cell_id} is already refined (not activating).")
 
-        # Create two new child cells, which inherit primitive variables
+        # Get neighboring cells for slope calculation
+        parent_index = active_cells.index(parent_cell)
+            
+        left = active_cells[parent_index - 1] if parent_index > 0 else None
+        right = active_cells[parent_index + 1] if parent_index < len(active_cells) - 1 else None
+
+        if left is not None and right is not None:
+            # Use 3-point stencil for slope calculation
+            U_arr = np.array([left.prim, parent_cell.prim, right.prim])
+            X_arr = np.array([left.x, parent_cell.x, right.x])
+            
+            # Calculate slope using minmod limiter
+            sigma = minmod(U_arr, X_arr)
+            # Use slope at center point (index 1)
+            slope = sigma[1]
+            
+        elif left is not None:
+            # Only left neighbor available - use one-sided difference
+            slope = (parent_cell.prim - left.prim) / (parent_cell.x - left.x)
+            
+        elif right is not None:
+            # Only right neighbor available - use one-sided difference  
+            slope = (right.prim - parent_cell.prim) / (right.x - parent_cell.x)
+            
+        else:
+            # No neighbors available - use zero slope (constant interpolation)
+            slope = np.zeros_like(parent_cell.prim)
+
         child_level = parent_cell.level + 1
         child_left_id = self.get_next_id()
         child_right_id = self.get_next_id()
 
+        # Calculate child cell centers
+        child_left_center = (parent_cell.xmin + parent_cell.x) / 2
+        child_right_center = (parent_cell.x + parent_cell.xmax) / 2
+        
+        # Linear interpolation: U(x) = U_parent + slope * (x - x_parent)
+        child_left_prim = parent_cell.prim + slope * (child_left_center - parent_cell.x)
+        child_right_prim = parent_cell.prim + slope * (child_right_center - parent_cell.x)
+
         child_left = cell.cell(
-            prim=parent_cell.prim,
+            prim=child_left_prim,
             xmin=parent_cell.xmin, xmax=parent_cell.x,
             id=child_left_id, level=child_level, parent=parent_cell_id 
         )
         child_right = cell.cell(
-            prim=parent_cell.prim,
+            prim=child_right_prim,
             xmin=parent_cell.x, xmax=parent_cell.xmax,
             id=child_right_id, level=child_level, parent=parent_cell_id
         )
@@ -161,27 +195,13 @@ class grid:
         X = np.array([c.x for c in active_cell])
 
         prim_with_gc = np.zeros((prim.shape[0] + 2, prim.shape[1]))
-        X_with_gc = np.zeros(N + 2)
 
-        """
-        # Make ghost cell
-        prim_with_gc[1:-1] = prim
-        X_with_gc[1:-1] = X
-
-        prim_with_gc[0, :] = prim_with_gc[1, :]
-        prim_with_gc[-1, :] = prim_with_gc[-2, :]
-
-        X_with_gc[0] = 0 - X_with_gc[1]
-        X_with_gc[-1] = self.L + (self.L - X_with_gc[-2])
-        """
         prim_with_gc, X_with_gc = generate_gc(prim, X, order=0, NG=1)
 
         # Central difference
         dU = prim_with_gc[2:, :] - prim_with_gc[:-2, :]
-        #dx = X_with_gc[2:] - X_with_gc[:-2]
 
         grad = np.abs(dU)
-        #print(f"Average Gradient: {np.round(np.average(grad), 2)}, Max: {np.round(np.max(grad), 2)}, Min: {np.round(np.min(grad), 2)}")
         refine_cell_index = np.unique(np.where(grad > refine_epsilon)[0])
         coarse_cell_index = np.unique(np.where(grad < corase_epsilon)[0])
 
@@ -223,7 +243,7 @@ class grid:
 
         for c in active_cell:
             if c.need_refine and id_only:
-                self.refine_cell(c.id)
+                self.refine_cell(c.id, active_cell)
                 c.need_refine = False
             if not id_only and c.level < self.max_level:
                 self.refine_cell(c.id)
