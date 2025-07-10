@@ -1,4 +1,5 @@
 import numpy as np
+from FVM import con2prim, prim2con, GAMMA
 
 def generate_gc(U, X, NG, order=0):
     N = U.shape[0]
@@ -75,81 +76,115 @@ def MUSCL(U, solver, dt, dx, N, X, **kwargs):
 
     return -dU
 
-def WENO(U, solver, dt, dx, N, X, **kwargs):
-    num_vars = U.shape[1]
-    NG = 2  # number of ghost cells
+#========= PPM =========
 
-    def weno4_reconstruct(U, dx):
+def PPM(U, solver, dt, dx, N, X, **kwargs):
+    
+    def minmod_limiter(a, b):
+        if a * b <= 0:
+            return 0.0
+        elif abs(a) < abs(b):
+            return a
+        else:
+            return b
+    
+    dU = np.zeros_like(U)
+    NG = 2
+    
+    U_extended = np.pad(U, ((NG, NG), (0, 0)), 'edge')
+    dx_extended = np.pad(dx, (NG, NG), 'edge')
 
-        N = len(U)
-        UL = np.zeros(N + 1)
-        UR = np.zeros(N + 1)
-        
-        # Add ghost cells
-        NG = 2
-        U_pad = np.pad(U, NG, mode='edge')
-        dx_pad = np.pad(dx, NG, mode='edge')
-        
-        eps = 1e-6
-        
-        for i in range(N + 1):
-            ip = i + NG
-            
-            # Get stencil values
-            f_m2, f_m1, f_0, f_p1 = U_pad[ip-2:ip+2]
-            dx_m2, dx_m1, dx_0 = dx_pad[ip-2:ip+1]
-            
-            # Right-biased reconstruction (UR[i])
-            p0 = (1/3) * f_m2 - (7/6) * f_m1 + (11/6) * f_0
-            p1 = -(1/6) * f_m1 + (5/6) * f_0 + (1/3) * f_p1
-            
-            # Smoothness indicators
-            beta0 = (13/12) * (f_m2 - 2*f_m1 + f_0)**2 + (1/4) * (f_m2 - 4*f_m1 + 3*f_0)**2
-            beta1 = (13/12) * (f_m1 - 2*f_0 + f_p1)**2 + (1/4) * (f_m1 - f_p1)**2
-            
-            # Weights
-            gamma0, gamma1 = 1/3, 2/3
-            alpha0 = gamma0 / (eps + beta0)**2
-            alpha1 = gamma1 / (eps + beta1)**2
-            
-            omega0 = alpha0 / (alpha0 + alpha1)
-            omega1 = alpha1 / (alpha0 + alpha1)
-            
-            UR[i] = omega0 * p0 + omega1 * p1
-            
-            # Left-biased reconstruction (UL[i])
-            # Flip the stencil
-            f_p2, f_p1, f_0, f_m1 = U_pad[ip+1:ip-3:-1]
-            
-            p0 = (1/3) * f_p2 - (7/6) * f_p1 + (11/6) * f_0
-            p1 = -(1/6) * f_p1 + (5/6) * f_0 + (1/3) * f_m1
-            
-            beta0 = (13/12) * (f_p2 - 2*f_p1 + f_0)**2 + (1/4) * (f_p2 - 4*f_p1 + 3*f_0)**2
-            beta1 = (13/12) * (f_p1 - 2*f_0 + f_m1)**2 + (1/4) * (f_p1 - f_m1)**2
-            
-            alpha0 = gamma0 / (eps + beta0)**2
-            alpha1 = gamma1 / (eps + beta1)**2
-            
-            omega0 = alpha0 / (alpha0 + alpha1)
-            omega1 = alpha1 / (alpha0 + alpha1)
-            
-            UL[i] = omega0 * p0 + omega1 * p1
-        
-        return UL, UR
+    delta = np.zeros((N + 4, 3))
+    for i in range(1, N + 3):
+        for k in range(3):
+            delta[i, k] = minmod_limiter(
+                    (U_extended[i, k] - U_extended[i-1, k]) / dx_extended[i-1],
+                    (U_extended[i+1, k] - U_extended[i, k]) / dx_extended[i]
+                ) * min(dx_extended[i-1], dx_extended[i])
+    """        
+    xi_j = dx_extended[NG-1:N+NG][:, np.newaxis]
+    xi_jm1 = dx_extended[NG-2:N+NG-1][:, np.newaxis]
+    xi_jp1 = dx_extended[NG:N+NG+1][:, np.newaxis]
+    xi_jp2 = dx_extended[NG+1:N+NG+2][:, np.newaxis]
 
-    UL = np.zeros((N + 1, num_vars))
-    UR = np.zeros((N + 1, num_vars))
+    a_j = U_extended[NG-1:N+NG]
+    a_jm1 = U_extended[NG-2:N+NG-1]
+    a_jp1 = U_extended[NG:N+NG+1]
 
-    for var in range(num_vars):
-        UL_recon, UR_recon = weno4_reconstruct(U[:, var], dx)
-        UL[:, var] = UL_recon
-        UR[:, var] = UR_recon
+    def get_daj(xi_jm1, xi_j, xi_jp1, a_jm1, a_j):
+        daj = (xi_j / (xi_jm1 + xi_j + xi_jp1) * (
+            (2 * xi_jm1 + xi_j) * (a_j - a_jm1) / (xi_jp1 + xi_j) +
+            (xi_j + 2 * xi_jp1) * (a_j - a_jm1) / (xi_jm1 + xi_j)
+        ))
 
-    flux = np.zeros((N + 1, num_vars))
+        return daj
+
+    d_aj = get_daj(xi_jm1, xi_j, xi_jp1, a_jm1, a_j)
+    d_ajp1 = get_daj(xi_j, xi_jp1, xi_jp2, a_j, a_jp1)
+
+    a_boundary = (a_j + xi_j / (xi_j + xi_jp1) * (a_jp1 - a_j) + 
+                  1 / (xi_jm1 + xi_j + xi_jp1 + xi_jp2) * (
+                      2 * xi_jp2 * xi_j * (a_jp1 - a_j) / (xi_j + xi_jp1) * 
+                      ((xi_jm1 + xi_j) / (2 * xi_j + xi_jp1) - (xi_jp2 + xi_jp1) / (2 * xi_jp1 + xi_j)) -
+                      xi_j * d_ajp1 * (xi_jm1 + xi_j) / (2 * xi_j + xi_jp1) + xi_jp1 * (xi_jp1 + xi_jp2) * d_aj / (xi_j + 2 * xi_jp1)
+                  ))
+    #print(a_boundary.shape)
+    """
+    U_L = np.zeros((N + 3, 3))  # Left state at interface i+1/2
+    U_R = np.zeros((N + 3, 3))  # Right state at interface i+1/2
+
+    U_L[:, :] = U_extended[:-1, :] + 0.5 * delta[:-1, :]
+    U_R[:, :] = U_extended[1:, :] - 0.5 * delta[1:, :]
+
+    #U_L[:, :] = a_boundary[:-1]
+    #U_R[:, :] = a_boundary[1:]
+
+    mask1 = (U_L - U_extended[:-1, :]) * (U_extended[:-1, :] - U_R) <= 0
+    
+    U_L[mask1] = U_extended[:-1, :][mask1]
+    U_R[mask1] = U_extended[:-1, :][mask1]
+
+    mask2 = (U_L - U_extended[:-1, :]) * (U_extended[1:, :] - U_R) <= 0
+
+    mask_cond1 = mask2 & (np.abs(U_L - U_extended[:-1, :]) >= 2 * np.abs(U_R - U_extended[1:, :]))
+    U_L[mask_cond1] = U_extended[:-1, :][mask_cond1] - 2 * (U_R[mask_cond1] - U_extended[1:, :][mask_cond1])
+
+    mask_cond2 = mask2 & (np.abs(U_R - U_extended[1:, :]) >= 2 * np.abs(U_L - U_extended[:-1, :]))
+    U_R[mask_cond2] = U_extended[1:, :][mask_cond2] - 2 * (U_L[mask_cond2] - U_extended[:-1, :][mask_cond2])
+
+    F = np.zeros((N + 1, 3))
+    
     for i in range(N + 1):
-        flux[i] = solver(UL[i], UR[i]) 
+        
+        UL = U_L[i+1, :]
+        UR = U_R[i+1, :]
+        
+        # Compute flux using Riemann solver
+        F[i, :] = solver(UL, UR)
+    dU = -dt/dx[:, np.newaxis] * (F[1:] - F[:-1])
+    
+    return dU
 
-    # Conservative update
-    dU = (dt / dx[:, np.newaxis]) * (flux[1:] - flux[:-1])
+# ========= END OF PPM =========
 
-    return -dU
+def dx_method(type, **kwargs):
+    if type == 'godunov':
+        return godunov(**kwargs)
+    if type == 'MUSCL':
+        return MUSCL(**kwargs)
+    if type == 'WENO':
+        return WENO(**kwargs)
+    if type == 'PPM':
+        return PPM(**kwargs)
+    
+def dt_method(dt_type, dx_type, U, **kwargs):
+    if dt_type == 'euler':
+        dU = dx_method(dx_type, U=U, **kwargs)
+        return dU
+    elif dt_type == 'rk4':
+        k1 = dx_method(dx_type, U=U, **kwargs)
+        k2 = dx_method(dx_type, U=U + 0.5 * k1, **kwargs)
+        k3 = dx_method(dx_type, U=U + k2 * 0.5, **kwargs)
+        k4 = dx_method(dx_type, U=U + k3, **kwargs)
+        
+        return (k1 + 2 * k2 + 2 * k3 + k4) / 6

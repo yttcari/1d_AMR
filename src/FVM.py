@@ -2,7 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import copy
 from tqdm import tqdm
-from reconstruct import *
+from reconstruct import dt_method
+from numba import njit
     
 CFL = 0.5   
 GAMMA = 1.4
@@ -96,6 +97,11 @@ def prim2con_grid(con):
 
 ############### Solver ###############
 
+def get_S(U):
+    rho, u, p = con2prim(U)
+
+    return np.sqrt(GAMMA * p / rho)
+
 def HLL_flux(UL, UR):
     # Convert to primitive variables
     rhoL, uL, pL = con2prim(UL)
@@ -171,26 +177,6 @@ def calc_dt(grid_instance):
 
     return dt_per_level
 
-def dx_method(type, **kwargs):
-    if type == 'godunov':
-        return godunov(**kwargs)
-    if type == 'MUSCL':
-        return MUSCL(**kwargs)
-    if type == 'WENO':
-        return WENO(**kwargs)
-    
-def dt_method(dt_type, dx_type, U, **kwargs):
-    if dt_type == 'euler':
-        dU = dx_method(dx_type, U=U, **kwargs)
-        return dU
-    elif dt_type == 'rk4':
-        k1 = dx_method(dx_type, U=U, **kwargs)
-        k2 = dx_method(dx_type, U=U + 0.5 * k1, **kwargs)
-        k3 = dx_method(dx_type, U=U + k2 * 0.5, **kwargs)
-        k4 = dx_method(dx_type, U=U + k3, **kwargs)
-        
-        return (k1 + 2 * k2 + 2 * k3 + k4) / 6
-
 
 ############### Simulation ###############
 
@@ -199,7 +185,6 @@ def solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4', **kwargs):
     t = 0
     print(f"Using {dx_type} in spatial and {dt_type} in temporal.")
     history = []
-    
     with tqdm(total=t_final, unit="s", desc="Solving Simulation") as pbar:
         while t < t_final:
             active_cells = grid.get_all_active_cells()
@@ -219,7 +204,6 @@ def solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4', **kwargs):
 
             # Update conserved variables
             dU = dt_method(U=U, solver=solver, dt=dt, dx=dx, N=N, X=X, dt_type=dt_type, dx_type=dx_type)
-
             U += dU
             grid.update(con2prim_grid(U))
 
@@ -261,7 +245,6 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
 
             if t + dt > t_final:
                 dt = t_final - t
-
             dU = dt_method(U=U, solver=solver, dt=dt, dx=dx, N=N, X=X, dt_type=dt_type, dx_type=dx_type)
 
             U += dU
@@ -287,7 +270,6 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
 
                     if np.all(diff_l < epsilon) and np.all(diff_r < epsilon):
                         grid.coarsen_cell(active_cells[c].parent) # coarse all cell that has diff < epsilon
-            
             new_flag(**kwargs)
 
             pbar.update(dt)
