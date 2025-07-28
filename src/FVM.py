@@ -2,105 +2,26 @@ import numpy as np
 import matplotlib.pyplot as plt
 import copy
 from tqdm import tqdm
-from reconstruct import dt_method
+from reconstruct import dx_method
 from numba import njit
-    
-CFL = 0.5   
-GAMMA = 1.4
+from misc import *    
 
-############### Global Variable ###############
-def get_gamma():
-    return GAMMA
 
-def get_CFL():
-    return CFL
-
-def update_CFL(new_CFL):
-    global CFL
-
-    CFL = new_CFL
-
-def update_GAMMA(new_GAMMA):
-    global GAMMA
-
-    GAMMA = new_GAMMA
-
-############### Parameter Update ###############
-def prim2con(prim):
-    """
-    Input: primitive variable [rho, u, p]
-    Output: consered variable [rho, rhou, E]
-    """
-
-    rho = prim[0]
-    u = prim[1]
-    p = prim[2]
-
-    E = p / (GAMMA - 1) + 0.5 * rho * (u ** 2)
-
-    return np.array([rho, rho * u, E])
-
-def con2prim(con):
-    """
-    Input: consered variable [rho, rhou, E]
-    Output: primitive variable [rho, u, p]
-    """
-    rho = con[0]
-    # Add checks for rho being close to zero or negative
-    if np.any(rho <= 0):
-        print(f"Warning: Negative or zero density encountered! rho={rho}")
-    
-        rho = np.finfo(float).eps # smallest representable positive float
-
-    u = con[1] / rho
-    p = (con[2] - 0.5 * rho * (u ** 2)) * (GAMMA - 1)
-
-    # Add checks for p being close to zero or negative
-    if np.any(p <= 0):
-        print(f"Warning: Negative or zero pressure encountered! p={p} at rho={rho}, u={u}")
-        p = np.finfo(float).eps # smallest representable positive float
-
-    return np.array([rho, u, p])
-
-def con2prim_grid(U_values):
-    # Ensure U_values is treated as a float NumPy array
-    U_values = np.asarray(U_values, dtype=float)
-
-    # Initialize prim with the correct shape and data type
-    prim = np.zeros_like(U_values, dtype=float)
-
-    for i, u in enumerate(U_values):
-        rho = u[0]
-        mom = u[1]
-        energy = u[2]
+def dt_method(dt_type, dx_type, U, **kwargs):
+    func = dx_method(dx_type)
+    if dt_type == 'euler':
+        dU = func(U=U, **kwargs)
+        return dU
+    elif dt_type == 'rk4':
+        k1 = func(U=U, **kwargs)
+        k2 = func(U=U + 0.5 * k1, **kwargs)
+        k3 = func(U=U + k2 * 0.5, **kwargs)
+        k4 = func(U=U + k3, **kwargs)
         
-        # Robustness for numerical errors
-        if rho <= 0: rho = 1e-10
-        u_vel = mom / rho
-        internal_energy = energy - 0.5 * rho * u_vel**2
-        if internal_energy < 0: 
-            internal_energy = 1e-10
+        return (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
-        pressure = internal_energy * (GAMMA - 1)
-        
-        # MODIFIED LINE: Assign a NumPy array directly to the row
-        prim[i] = np.array([rho, u_vel, pressure], dtype=float) 
-        
-    return prim
-
-def prim2con_grid(con):
-    tmp = []
-    for i in con:
-        tmp.append(prim2con(i))
-
-    return np.array(tmp)
 
 ############### Solver ###############
-
-def get_S(U):
-    rho, u, p = con2prim(U)
-
-    return np.sqrt(GAMMA * p / rho)
 
 def HLL_flux(UL, UR):
     # Convert to primitive variables
@@ -185,6 +106,8 @@ def solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4', **kwargs):
     t = 0
     print(f"Using {dx_type} in spatial and {dt_type} in temporal.")
     history = []
+    grid.update_reconstruction(dx_type)
+
     with tqdm(total=t_final, unit="s", desc="Solving Simulation") as pbar:
         while t < t_final:
             active_cells = grid.get_all_active_cells()
@@ -226,6 +149,7 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
     t = 0
     print(f"Using {dx_type} in spatial and {dt_type} in temporal.")
     history = []
+    grid.update_reconstruction(dx_type)
 
     with tqdm(total=t_final, unit="s", desc="Solving Simulation") as pbar:
         while t < t_final:
@@ -264,9 +188,6 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
 
                     diff_l = np.abs(cell_l.prim - avg)
                     diff_r = np.abs(cell_r.prim - avg)
-
-                    #DEBUG_DIFF = np.concatenate([diff_l, diff_r])
-                    #print(np.max(DEBUG_DIFF), np.min(DEBUG_DIFF), np.mean(DEBUG_DIFF))
 
                     if np.all(diff_l < epsilon) and np.all(diff_r < epsilon):
                         grid.coarsen_cell(active_cells[c].parent) # coarse all cell that has diff < epsilon

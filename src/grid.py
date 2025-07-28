@@ -1,6 +1,6 @@
 import numpy as np
 import cell
-from reconstruct import generate_gc, minmod
+from reconstruct import *
 # Grid that stores box
 class grid:
     def __init__(self, L, N):
@@ -9,7 +9,7 @@ class grid:
         self.dx = {0: L/N}
         self.grid = {} 
         self.id_counter = 0
-        self.t = 0
+        self.reconstruction = 'godunov'
 
         # Initialization
         for n in range(self.N):
@@ -22,6 +22,12 @@ class grid:
 
     def update_max_level(self, new_max):
         self.max_level = new_max
+
+    def update_reconstruction(self, method):
+        if method == 'godunov':
+            self.reconstruction = zero_order
+        if method == 'MUSCL':
+            self.reconstruction = linear
 
     def __repr__(self):
         return(f"(L={self.L}, N={self.N}, dx={self.dx}, grid={self.grid}, id_counter={self.id_counter}, t={self.t})")
@@ -64,44 +70,11 @@ class grid:
             raise TypeError(f"Cell with ID {parent_cell_id} is already refined (not activating).")
 
         # Get neighboring cells for slope calculation
-        parent_index = active_cells.index(parent_cell)
-            
-        left = active_cells[parent_index - 1] if parent_index > 0 else None
-        right = active_cells[parent_index + 1] if parent_index < len(active_cells) - 1 else None
-
-        if left is not None and right is not None:
-            # Use 3-point stencil for slope calculation
-            U_arr = np.array([left.prim, parent_cell.prim, right.prim])
-            X_arr = np.array([left.x, parent_cell.x, right.x])
-            
-            # Calculate slope using minmod limiter
-            sigma = minmod(U_arr, X_arr)
-            # Use slope at center point (index 1)
-            slope = sigma[1]
-            
-        elif left is not None:
-            # Only left neighbor available - use one-sided difference
-            slope = (parent_cell.prim - left.prim) / (parent_cell.x - left.x)
-            
-        elif right is not None:
-            # Only right neighbor available - use one-sided difference  
-            slope = (right.prim - parent_cell.prim) / (right.x - parent_cell.x)
-            
-        else:
-            # No neighbors available - use zero slope (constant interpolation)
-            slope = np.zeros_like(parent_cell.prim)
-
         child_level = parent_cell.level + 1
         child_left_id = self.get_next_id()
         child_right_id = self.get_next_id()
 
-        # Calculate child cell centers
-        child_left_center = (parent_cell.xmin + parent_cell.x) / 2
-        child_right_center = (parent_cell.x + parent_cell.xmax) / 2
-        
-        # Linear interpolation: U(x) = U_parent + slope * (x - x_parent)
-        child_left_prim = parent_cell.prim + slope * (child_left_center - parent_cell.x)
-        child_right_prim = parent_cell.prim + slope * (child_right_center - parent_cell.x)
+        child_left_prim, child_right_prim = linear(active_cells, parent_cell)
 
         child_left = cell.cell(
             prim=child_left_prim,
@@ -246,7 +219,7 @@ class grid:
                 self.refine_cell(c.id, active_cell)
                 c.need_refine = False
             if not id_only and c.level < self.max_level:
-                self.refine_cell(c.id)
+                self.refine_cell(c.id, active_cell)
 
     def coarse(self, **kwargs):
         active_cell = self.get_all_active_cells(**kwargs)
@@ -255,3 +228,48 @@ class grid:
             if c.need_coarse and c.id in self.grid:
                 self.coarsen_cell(c.parent)
                 c.need_coarse = False
+
+
+# ===== Refinement Method within grid =====
+def zero_order(active_cells, parent_cell):
+    child_left_prim =parent_cell.prim
+    child_right_prim = parent_cell.prim
+    return child_left_prim, child_right_prim
+
+def linear(active_cells, parent_cell):
+    parent_index = active_cells.index(parent_cell)
+
+    left = active_cells[parent_index - 1] if parent_index > 0 else None
+    right = active_cells[parent_index + 1] if parent_index < len(active_cells) - 1 else None
+
+    if left is not None and right is not None:
+        # Use 3-point stencil for slope calculation
+        U_arr = np.array([left.prim, parent_cell.prim, right.prim])
+        X_arr = np.array([left.x, parent_cell.x, right.x])
+            
+        # Calculate slope using minmod limiter
+        sigma = get_slope(U_arr, X_arr)
+        # Use slope at center point (index 1)
+        slope = sigma[1]
+
+    elif left is not None:
+            # Only left neighbor available - use one-sided difference
+        slope = (np.array(parent_cell.prim) - np.array(left.prim)) / (parent_cell.x - left.x)
+            
+    elif right is not None:
+            # Only right neighbor available - use one-sided difference  
+        slope = ((np.array(right.prim) - np.array(parent_cell.prim)) / (right.x - parent_cell.x))
+            
+    else:
+            # No neighbors available - use zero slope (constant interpolation)
+        slope = np.zeros_like(parent_cell.prim)
+
+    # Calculate child cell centers
+    child_left_center = (parent_cell.xmin + parent_cell.x) / 2
+    child_right_center = (parent_cell.x + parent_cell.xmax) / 2
+        
+    # Linear interpolation: U(x) = U_parent + slope * (x - x_parent)
+    child_left_prim = parent_cell.prim + slope * (child_left_center - parent_cell.x)
+    child_right_prim = parent_cell.prim + slope * (child_right_center - parent_cell.x)
+
+    return child_left_prim, child_right_prim
