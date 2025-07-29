@@ -72,148 +72,126 @@ def MUSCL(U, solver, dt, dx, N, X, **kwargs):
 #========= PPM =========
 
 def PPM(U, solver, dt, dx, N, X, **kwargs):
-    
+    # Credit from pyppm (https://github.com/python-hydro/ppmpy.git) 
+    # Modified with vectorised operation
+
     dU = np.zeros_like(U)
     NG = 3
-    
-    U_extended = np.pad(U, ((NG, NG), (0, 0)), 'edge')
+    N = U.shape[0]
+    q = np.pad(U, ((NG, NG), (0, 0)), 'edge')
     dx_extended = np.pad(dx, (NG, NG), 'edge')
- 
-    xi_j = dx_extended[NG-1:N+NG+1][:, np.newaxis]
-    xi_jm1 = dx_extended[NG-2:N+NG][:, np.newaxis]
-    xi_jp1 = dx_extended[NG:N+NG+2][:, np.newaxis]
-    xi_jp2 = dx_extended[NG+1:N+NG+3][:, np.newaxis]
 
-    a_j = U_extended[NG-1:N+NG+1]
-    a_jm1 = U_extended[NG-2:N+NG]
-    a_jp1 = U_extended[NG:N+NG+2]
+    cs = get_wavespeed(q)
 
-    def get_daj(xi_jm1, xi_j, xi_jp1, a_jm1, a_j):
-        daj = (xi_j / (xi_jm1 + xi_j + xi_jp1) * (
-            (2 * xi_jm1 + xi_j) * (a_j - a_jm1) / (xi_jp1 + xi_j) +
-            (xi_j + 2 * xi_jp1) * (a_j - a_jm1) / (xi_jm1 + xi_j)
-        ))
+    def construct_parabola(a_data):
+        am = np.zeros_like(a_data)
+        ap = np.zeros_like(a_data)
+        a6 = np.zeros_like(a_data)
 
-        return daj
+        ib = NG - 2
+        ie = N + NG
 
-    d_aj = get_daj(xi_jm1, xi_j, xi_jp1, a_jm1, a_j)
-    d_ajp1 = get_daj(xi_j, xi_jp1, xi_jp2, a_j, a_jp1)
+        da0 = np.zeros_like(a_data)
+        dap = np.zeros_like(a_data)
 
-    a_boundary = (a_j + xi_j / (xi_j + xi_jp1) * (a_jp1 - a_j) + 
-                  1 / (xi_jm1 + xi_j + xi_jp1 + xi_jp2) * (
-                      2 * xi_jp2 * xi_j * (a_jp1 - a_j) / (xi_j + xi_jp1) * 
-                      ((xi_jm1 + xi_j) / (2 * xi_j + xi_jp1) - (xi_jp2 + xi_jp1) / (2 * xi_jp1 + xi_j)) -
-                      xi_j * d_ajp1 * (xi_jm1 + xi_j) / (2 * xi_j + xi_jp1) + xi_jp1 * (xi_jp1 + xi_jp2) * d_aj / (xi_j + 2 * xi_jp1)
-                  ))
+        #print(a_data[ib+1:ie+2].shape, a_data[ib-1:ie].shape, a_data[ib+2:ie+3].shape, a_data[ib:ie+1].shape, a_data.shape[0])
 
-    U_L = np.zeros_like(U_extended[2:-2])
-    U_R = np.zeros_like(U_extended[2:-2])
+        da0[ib:ie+1, :] = 0.5 * (a_data[ib+1:ie+2, :] - a_data[ib-1:ie, :])
+        dap[ib:ie+1, :] = 0.5 * (a_data[ib+2:ie+3, :] - a_data[ib:ie+1, :])
 
-    U_L[:-1] = a_boundary[:-1]
-    U_R[1:] = a_boundary[1:]
+        dl = np.zeros_like(a_data)
+        dr = np.zeros_like(a_data)
+        dr[ib:ie+1] = a_data[ib+1:ie+2] - a_data[ib:ie+1]
+        dl[ib:ie+1] = a_data[ib:ie+1] - a_data[ib-1:ie]
 
-    a_j = U_extended[2:-2]
-    # DEBUG
-    # print(N, U_L.shape, a_boundary.shape, a_j.shape, U_extended.shape)
+        da0 = np.where(dl * dr < 0, 0.0,
+                           np.sign(da0) * np.minimum(np.abs(da0),
+                                                     2.0 * np.minimum(np.abs(dl),
+                                                                      np.abs(dr))))
 
-    # Limiter
-    mask1 = (U_R - a_j) * (a_j - U_L) <= 0
-    mask2 = (U_R - U_L) * (a_j - 0.5 * (U_L + U_R)) > (1/6) * (U_L - U_R) ** 2
-    mask3 = (U_R - U_L) * (a_j - 0.5 * (U_L + U_R)) < -(1/6) * (U_L - U_R) ** 2
+        dl[:, :] = dr[:, :]
+        dr[ib:ie+1, :] = a_data[ib+2:ie+3, :] - a_data[ib+1:ie+2, :]
 
-    U_L = np.where(mask2, 3 * a_j - 2 * U_R, np.where(mask1, a_j, U_L))
-    U_R = np.where(mask3, 3 * a_j - 2 * U_L, np.where(mask1, a_j, U_R))
+        dap = np.where(dl * dr < 0, 0.0,
+                           np.sign(dap) * np.minimum(np.abs(dap),
+                                                     2.0 * np.minimum(np.abs(dl),
+                                                                      np.abs(dr))))
+
+        aint = np.zeros_like(a_data)
+        aint[ib:ie+1, :] = 0.5 * (a_data[ib:ie+1, :] + a_data[ib+1:ie+2, :]) - \
+                             (1.0 / 6.0) * (dap[ib:ie+1, :] - da0[ib:ie+1, :])
+
+        ap[:, :] = aint[:, :]
+        am[1:, :] = ap[:-1, :]
+
+        test = (ap - a_data) * (a_data - am) < 0
+        da = ap - am
+        testm = da * (a_data - 0.5 * (am + ap)) > da**2 / 6
+        am[:, :] = np.where(test, a_data, np.where(testm, 3.0*a_data - 2.0*ap, am))
+
+        testp = -da**2 / 6 > da * (a_data - 0.5 * (am + ap))
+        ap[:, :] = np.where(test, a_data, np.where(testp, 3.0*a_data - 2.0*am, ap))
+        
+        a6[:, :] = 6.0 * a_data - 3.0 * (am + ap)
+
+        return am, ap, a6
+
+    def integrate_parabola(sigma, am, ap, a6):
+        Ip = np.where(sigma <= 0.0, ap,
+                         ap - 0.5 * np.abs(sigma) *
+                           (ap - am - (1.0 - (2.0/3.0) * np.abs(sigma)) * a6))
+
+        Im = np.where(sigma >= 0.0, am,
+                         am + 0.5 * np.abs(sigma) *
+                           (ap - am + (1.0 - (2.0/3.0) * np.abs(sigma)) * a6))
+        return Im, Ip
+    
+    q_am, q_ap, q_a6 = construct_parabola(q)
+
+    Im = np.zeros((q.shape[0], 3, q.shape[1]))
+    Ip = np.zeros((q.shape[0], 3, q.shape[1]))
+
+    for iwave, sgn in enumerate([-1, 0, 1]):
+        sigma = (q[:, 1] + sgn * cs) * dt / dx_extended
+        Im[:, iwave, :], Ip[:, iwave, :] = integrate_parabola(sigma[:, np.newaxis], q_am, q_ap, q_a6)
 
 
-    a6 = 6.0 * a_j - 3.0 * (U_R + U_L)
+    q_left_full = np.zeros((N + 2 * NG + 1, U.shape[1]))
+    q_right_full = np.zeros((N + 2 * NG + 1, U.shape[1]))
+    
+    q_ref_m = Im[NG-1:N+NG+1, 0, :] 
+    q_ref_p = Ip[NG-1:N+NG+1, 2, :] 
+
+    ev_m, lvec_m, rvec_m = eigen(q_ref_m) 
+    ev_p, lvec_p, rvec_p = eigen(q_ref_p)
+
+    dq_m = q_ref_m[:, np.newaxis, :] - Im[NG-1:N+NG+1, :, :]  
+    dq_p = q_ref_p[:, np.newaxis, :] - Ip[NG-1:N+NG+1, :, :]  
+
+    beta_xm = np.einsum('mij,mjk->mik', lvec_m, dq_m.transpose(0, 2, 1)).diagonal(axis1=1, axis2=2)
+    beta_xp = np.einsum('mij,mjk->mik', lvec_p, dq_p.transpose(0, 2, 1)).diagonal(axis1=1, axis2=2)
+
+    q_right = q_ref_m.copy()
+    q_left  = q_ref_p.copy()
+
+    mask_m = ev_m <= 0  
+    mask_p = ev_p >= 0 
+
+    for iwave in range(3):
+        q_right -= (mask_m[:, iwave][:, np.newaxis] * beta_xm[:, iwave][:, np.newaxis] * rvec_m[:, iwave, :])
+        q_left  -= (mask_p[:, iwave][:, np.newaxis] * beta_xp[:, iwave][:, np.newaxis] * rvec_p[:, iwave, :])
+
+    q_right_full[NG-1:N+NG+1, :] = q_right
+    q_left_full[NG:N+NG+2, :] = q_left
+
+    U_L = q_left_full[NG:N+NG+1, :]
+    U_R = q_right_full[NG:N+NG+1, :]
+
     flux = np.zeros((N + 1, U.shape[1]))
 
     for i in range(N + 1):
-        flux[i] = solver(U_L[i], U_R[i+1])
+        flux[i] = solver(U_L[i], U_R[i])
     
     dU = (dt / dx[:, np.newaxis]) * (flux[1:] - flux[:-1])
 
     return -dU
-
-"""
-def weno5_reconstruct_left(u, i, epsilon):
-
-    #5th-order WENO reconstruction for left state at interface i+1/2
-    # Three candidate stencils for left reconstruction
-    # Stencil 1: u[i-2], u[i-1], u[i]
-    u1 = (2*u[i-2] - 7*u[i-1] + 11*u[i]) / 6
-    
-    # Stencil 2: u[i-1], u[i], u[i+1]
-    u2 = (-u[i-1] + 5*u[i] + 2*u[i+1]) / 6
-    
-    # Stencil 3: u[i], u[i+1], u[i+2]
-    u3 = (2*u[i] + 5*u[i+1] - u[i+2]) / 6
-    
-    # Smoothness indicators
-    beta1 = (13/12) * (u[i-2] - 2*u[i-1] + u[i])**2 + (1/4) * (u[i-2] - 4*u[i-1] + 3*u[i])**2
-    beta2 = (13/12) * (u[i-1] - 2*u[i] + u[i+1])**2 + (1/4) * (u[i-1] - u[i+1])**2
-    beta3 = (13/12) * (u[i] - 2*u[i+1] + u[i+2])**2 + (1/4) * (3*u[i] - 4*u[i+1] + u[i+2])**2
-    
-    # Linear weights (for 5th order)
-    d1, d2, d3 = 1/10, 6/10, 3/10
-    
-    # Nonlinear weights
-    alpha1 = d1 / (epsilon + beta1)**2
-    alpha2 = d2 / (epsilon + beta2)**2
-    alpha3 = d3 / (epsilon + beta3)**2
-    
-    alpha_sum = alpha1 + alpha2 + alpha3
-    
-    w1 = alpha1 / alpha_sum
-    w2 = alpha2 / alpha_sum
-    w3 = alpha3 / alpha_sum
-    
-    # WENO reconstruction
-    return w1 * u1 + w2 * u2 + w3 * u3
-
-
-def weno5_reconstruct_right(u, i, epsilon):
-
-    #5th-order WENO reconstruction for right state at interface i+1/2
-    # Check bounds to prevent index errors
-    if i+3 >= len(u):
-        # Fall back to lower order reconstruction at boundaries
-        if i+1 < len(u):
-            return u[i+1]
-        else:
-            return u[i]
-    
-    # Three candidate stencils for right reconstruction
-    # Stencil 1: u[i-1], u[i], u[i+1]
-    u1 = (2*u[i-1] + 5*u[i] - u[i+1]) / 6
-    
-    # Stencil 2: u[i], u[i+1], u[i+2]
-    u2 = (-u[i] + 5*u[i+1] + 2*u[i+2]) / 6
-    
-    # Stencil 3: u[i+1], u[i+2], u[i+3]
-    u3 = (2*u[i+1] - 7*u[i+2] + 11*u[i+3]) / 6
-    
-    # Smoothness indicators
-    beta1 = (13/12) * (u[i-1] - 2*u[i] + u[i+1])**2 + (1/4) * (u[i-1] - u[i+1])**2
-    beta2 = (13/12) * (u[i] - 2*u[i+1] + u[i+2])**2 + (1/4) * (u[i] - 4*u[i+1] + 3*u[i+2])**2
-    beta3 = (13/12) * (u[i+1] - 2*u[i+2] + u[i+3])**2 + (1/4) * (3*u[i+1] - 4*u[i+2] + u[i+3])**2
-    
-    # Linear weights (for 5th order)
-    d1, d2, d3 = 3/10, 6/10, 1/10
-    
-    # Nonlinear weights
-    alpha1 = d1 / (epsilon + beta1)**2
-    alpha2 = d2 / (epsilon + beta2)**2
-    alpha3 = d3 / (epsilon + beta3)**2
-    
-    alpha_sum = alpha1 + alpha2 + alpha3
-    
-    w1 = alpha1 / alpha_sum
-    w2 = alpha2 / alpha_sum
-    w3 = alpha3 / alpha_sum
-    
-    # WENO reconstruction
-    return w1 * u1 + w2 * u2 + w3 * u3
-
-# ============ END OF WENO =============
-"""
