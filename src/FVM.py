@@ -24,6 +24,7 @@ def dt_method(dt_type, dx_type, U, **kwargs):
 ############### Solver ###############
 
 def HLL_flux(UL, UR):
+    # Credit from https://ua-2025q1-phys305.github.io/24/notes.html
     # Convert to primitive variables
     rhoL, uL, pL = con2prim(UL)
     rhoR, uR, pR = con2prim(UR)
