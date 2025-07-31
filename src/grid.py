@@ -1,6 +1,7 @@
 import numpy as np
 import cell
 from reconstruct import *
+
 # Grid that stores box
 class grid:
     def __init__(self, L, N):
@@ -9,7 +10,7 @@ class grid:
         self.dx = {0: L/N}
         self.grid = {} 
         self.id_counter = 0
-        self.reconstruction = 'godunov'
+        self.reconstruction = ppm_refine
 
         # Initialization
         for n in range(self.N):
@@ -25,12 +26,19 @@ class grid:
 
     def update_reconstruction(self, method):
         if method == 'godunov':
+            print("Using zero-th order reconstruction")
             self.reconstruction = zero_order
-        if method == 'MUSCL':
+        elif method == 'MUSCL':
+            print("Using linear reconstruction")
             self.reconstruction = linear
+        elif method == 'PPM':
+            print("Using PPM reconstruction")
+            self.reconstruction = ppm_refine
+        else:
+            raise ValueError("The entered method is not implemented.")
 
     def __repr__(self):
-        return(f"(L={self.L}, N={self.N}, dx={self.dx}, grid={self.grid}, id_counter={self.id_counter}, t={self.t})")
+        return(f"(L={self.L}, N={self.N}, dx={self.dx}, grid={self.grid}, id_counter={self.id_counter}")
 
     def get_next_id(self):
         """Generates a unique ID for a new cell."""
@@ -74,7 +82,7 @@ class grid:
         child_left_id = self.get_next_id()
         child_right_id = self.get_next_id()
 
-        child_left_prim, child_right_prim = linear(active_cells, parent_cell)
+        child_left_prim, child_right_prim = self.reconstruction(active_cells, parent_cell)
 
         child_left = cell.cell(
             prim=child_left_prim,
@@ -165,11 +173,10 @@ class grid:
         N = len(active_cell)
 
         prim = np.array([c.prim for c in active_cell])
-        X = np.array([c.x for c in active_cell])
 
         prim_with_gc = np.zeros((prim.shape[0] + 2, prim.shape[1]))
 
-        prim_with_gc, X_with_gc = generate_gc(prim, X, order=0, NG=1)
+        prim_with_gc = np.pad(prim, ((1, 1), (0, 0)), 'edge')
 
         # Central difference
         dU = prim_with_gc[2:, :] - prim_with_gc[:-2, :]
@@ -231,6 +238,8 @@ class grid:
 
 
 # ===== Refinement Method within grid =====
+from reconstruction import MUSCL
+# TODO Re-use reconstruction function?
 def zero_order(active_cells, parent_cell):
     child_left_prim =parent_cell.prim
     child_right_prim = parent_cell.prim
@@ -247,8 +256,8 @@ def linear(active_cells, parent_cell):
         U_arr = np.array([left.prim, parent_cell.prim, right.prim])
         X_arr = np.array([left.x, parent_cell.x, right.x])
             
-        # Calculate slope using minmod limiter
-        sigma = get_slope(U_arr, X_arr)
+        # Calculate slope using minmod limiters)
+        sigma = MUSCL.get_slope(U_arr, X_arr)
         # Use slope at center point (index 1)
         slope = sigma[1]
 
@@ -272,4 +281,118 @@ def linear(active_cells, parent_cell):
     child_left_prim = parent_cell.prim + slope * (child_left_center - parent_cell.x)
     child_right_prim = parent_cell.prim + slope * (child_right_center - parent_cell.x)
 
+    return child_left_prim, child_right_prim
+
+def ppm_refine(active_cells, parent_cell):
+    parent_index = active_cells.index(parent_cell)
+    
+    # 4-point stencil
+    if parent_index == 0:
+        left_prim = np.array(parent_cell.prim)
+    else:
+        left_prim = np.array(active_cells[parent_index - 1].prim)
+    
+    parent_prim = np.array(parent_cell.prim)
+    
+    if parent_index >= len(active_cells) - 1:
+        right_prim = np.array(parent_cell.prim)
+    else:
+        right_prim = np.array(active_cells[parent_index + 1].prim)
+    
+    if parent_index >= len(active_cells) - 2:
+        right_right_prim = np.array(right_prim)
+    else:
+        right_right_prim = np.array(active_cells[parent_index + 2].prim)
+    
+    a_data = np.vstack((left_prim, parent_prim, right_prim, right_right_prim))
+    
+    # da0 = 0.5 * (a[i+1] - a[i-1]) for cell i 
+    # dap = 0.5 * (a[i+2] - a[i]) for cell i
+    da0 = 0.5 * (a_data[2] - a_data[0]) 
+    dap = 0.5 * (a_data[3] - a_data[1])
+    
+    # van Leer limiting
+    dl = a_data[1] - a_data[0] 
+    dr = a_data[2] - a_data[1]
+    
+    da0 = np.where(dl * dr < 0, 0.0, 
+                   np.sign(da0) * np.minimum(np.abs(da0),
+                                           2.0 * np.minimum(np.abs(dl), np.abs(dr))))
+    
+    dl = a_data[2] - a_data[1] 
+    dr = a_data[3] - a_data[2] 
+    
+    dap = np.where(dl * dr < 0, 0.0,
+                   np.sign(dap) * np.minimum(np.abs(dap),
+                                           2.0 * np.minimum(np.abs(dl), np.abs(dr))))
+    
+    aint = 0.5 * (a_data[1] + a_data[2]) - (1.0 / 6.0) * (dap - da0)
+    ap = aint.copy()
+    
+    if parent_index > 0:
+        if parent_index == 1:
+            left_left = np.array(active_cells[0].prim)
+        else:
+            left_left = np.array(active_cells[parent_index - 2].prim) if parent_index >= 2 else left_prim
+        
+        left_stencil = np.vstack((left_left, left_prim, parent_prim, right_prim))
+        
+        # left neighbor
+        da0_left = 0.5 * (left_stencil[2] - left_stencil[0])
+        dap_left = 0.5 * (left_stencil[3] - left_stencil[1])
+        
+        # Limit slopes
+        dl_left = left_stencil[1] - left_stencil[0]
+        dr_left = left_stencil[2] - left_stencil[1]
+        da0_left = np.where(dl_left * dr_left < 0, 0.0,
+                           np.sign(da0_left) * np.minimum(np.abs(da0_left),
+                                                         2.0 * np.minimum(np.abs(dl_left), np.abs(dr_left))))
+        
+        dl_left = left_stencil[2] - left_stencil[1]
+        dr_left = left_stencil[3] - left_stencil[2]
+        dap_left = np.where(dl_left * dr_left < 0, 0.0,
+                           np.sign(dap_left) * np.minimum(np.abs(dap_left),
+                                                         2.0 * np.minimum(np.abs(dl_left), np.abs(dr_left))))
+        
+        aint_left = 0.5 * (left_stencil[1] + left_stencil[2]) - (1.0 / 6.0) * (dap_left - da0_left)
+        am = aint_left.copy()
+    else:
+        am = a_data[1].copy()
+    
+    # Monotonicity
+    a = a_data[1]
+    test = (ap - a) * (a - am) < 0
+
+    am = np.where(test, a, am)
+    ap = np.where(test, a, ap)
+    
+    da = ap - am
+    
+    testm = da * (a - 0.5 * (am + ap)) > da**2 / 6
+    am = np.where(testm, 3.0*a - 2.0*ap, am)
+    
+    testp = -da**2 / 6 > da * (a - 0.5 * (am + ap))
+    ap = np.where(testp, 3.0*a - 2.0*am, ap)
+    
+    a6 = 6.0 * a - 3.0 * (am + ap)
+    
+    dx = parent_cell.xmax - parent_cell.xmin
+    
+
+    child_left_center = parent_cell.xmin + 0.25 * dx  
+    child_right_center = parent_cell.xmin + 0.75 * dx 
+    
+    xi_L = (child_left_center - parent_cell.x) / dx  
+    xi_R = (child_right_center - parent_cell.x) / dx
+    
+    # parabola = am + x(ap - am + a6(1 - x))
+    def evaluate_parabola(xi, am, ap, a6):
+        return am + xi * (ap - am + a6 * (1.0 - xi))
+    
+    xi_L_edge = xi_L + 0.5  
+    xi_R_edge = xi_R + 0.5 
+    
+    child_left_prim = evaluate_parabola(xi_L_edge, am, ap, a6)
+    child_right_prim = evaluate_parabola(xi_R_edge, am, ap, a6)
+    
     return child_left_prim, child_right_prim
