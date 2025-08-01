@@ -92,34 +92,16 @@ def prim2con_grid(con):
     return np.array(tmp)
 
 # Ghost cell
+def generate_gc(arr, NG, mode):
+    if arr.ndim == 2:
+        shape = ((NG, NG), (0, 0))
+    else:
+        shape = (NG, NG)
 
-def generate_gc(U, X, NG, order=0):
-    N = U.shape[0]
-    num_vars = U.shape[1] if U.ndim > 1 else 1
-
-    data_with_gc = np.zeros((N + 2 * NG, num_vars)) if num_vars > 1 else np.zeros(N + 2 * NG)
-    X_with_gc = np.zeros(N + 2 * NG)
-
-    data_with_gc[NG:-NG] = U
-    X_with_gc[NG:-NG] = X
-
-    if order == 0:
-        for i in range(NG):
-            if num_vars > 1:
-                data_with_gc[i, :] = data_with_gc[NG, :]
-                data_with_gc[-(i + 1), :] = data_with_gc[-NG - 1, :]
-            else:
-                data_with_gc[i] = data_with_gc[NG]
-                data_with_gc[-(i + 1)] = data_with_gc[-NG - 1]
-
-        dx_left = X_with_gc[NG+1] - X_with_gc[NG]
-        dx_right = X_with_gc[-NG-1] - X_with_gc[-NG-2]
-
-        for i in range(NG):
-            X_with_gc[NG - 1 - i] = X_with_gc[NG - i] - dx_left # Left ghost cells
-            X_with_gc[NG + N + i] = X_with_gc[NG + N + i - 1] + dx_right # Right ghost cells
-
-    return data_with_gc, X_with_gc
+    if mode == 'outflow':
+        return np.pad(arr, shape, 'edge')
+    elif mode == 'periodic':
+        return np.pad(arr, shape, 'wrap')        
 
 # Estimate wavespeed
 def get_wavespeed(UL):
@@ -137,7 +119,7 @@ def get_wavespeed(UL):
     return cL
 
 # For PPM
-def eigen(U):
+def eigen_test(U):
     u = U[:, 1]         
     rho = U[:, 0]
     cs = get_wavespeed(U)  
@@ -155,5 +137,71 @@ def eigen(U):
         np.stack([np.ones_like(rho), np.zeros_like(rho), np.zeros_like(rho)], axis=-1),  # u
         np.stack([np.ones_like(rho), cs / rho, cs**2], axis=-1)  # u + c
     ], axis=1)
+
+    return ev, lvec, rvec
+
+def eigen(rho, u, p, gamma):
+    """Compute the left and right eigenvectors and the eigenvalues for
+    the Euler equations.
+
+    Parameters
+    ----------
+    rho : ndarray
+        density
+    u : ndarray
+        velocity
+    p : ndarray
+        pressure
+    gamma : float
+        ratio of specific heats
+
+    Returns
+    -------
+    ev : ndarray
+        array of eigenvalues
+    lvec : ndarray
+        matrix of left eigenvectors, `lvec(iwave, :)` is
+        the eigenvector for wave iwave
+    rvec : ndarray
+        matrix of right eigenvectors, `rvec(iwave, :)` is
+        the eigenvector for wave iwave
+    """
+
+    # The Jacobian matrix for the primitive variable formulation of the
+    # Euler equations is
+    #
+    #       / u   r   0   \
+    #   A = | 0   u   1/r |
+    #       \ 0  rc^2 u   /
+    #
+    # With the rows corresponding to rho, u, and p
+    #
+    # The eigenvalues are u - c, u, u + c
+
+    cs = np.sqrt(gamma * p / rho)
+
+    ev = np.array([u - cs, u, u + cs])
+
+    # The left eigenvectors are
+    #
+    #   l1 =     ( 0,  -r/(2c),  1/(2c^2) )
+    #   l2 =     ( 1,     0,     -1/c^2,  )
+    #   l3 =     ( 0,   r/(2c),  1/(2c^2) )
+    #
+
+    lvec = np.array([[0.0, -0.5 * rho / cs, 0.5 / cs**2],  # u - c
+                     [1.0, 0.0, -1.0 / cs**2],  # u
+                     [0.0, 0.5 * rho / cs, 0.5 / cs**2]])  # u + c
+
+    # The right eigenvectors are
+    #
+    #       /  1  \        / 1 \        /  1  \
+    # r1 =  |-c/r |   r2 = | 0 |   r3 = | c/r |
+    #       \ c^2 /        \ 0 /        \ c^2 /
+    #
+
+    rvec = np.array([[1.0, -cs / rho, cs**2],  # u - c
+                     [1.0, 0.0, 0.0],  # u
+                     [1.0, cs / rho, cs**2]])  # u + c
 
     return ev, lvec, rvec

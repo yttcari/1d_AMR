@@ -1,4 +1,5 @@
 import numpy as np
+from misc import generate_gc
 
 NG = 1
 
@@ -43,15 +44,17 @@ def get_slope(U, X):
 
     return minmod(slope_p, slope_m)
 
-def MUSCL(U, solver, dt, dx, N, X, **kwargs):
+def MUSCL(U, solver, dt, dx, N, X, bc_type='outflow', **kwargs):
     num_vars = U.shape[1]
-    U = np.pad(U, ((NG, NG), (0, 0)), 'edge')
+    #U = np.pad(U, ((NG, NG), (0, 0)), 'edge')
+    U = generate_gc(U, NG, bc_type)
     X = generate_X_gc(X, 1) # add ghost cell
 
     #print(U_ext.shape, X_ext.shape, U.shape, X.shape)
     sigma_gc = get_slope(U, X)
 
-    dx_gc = np.pad(dx, (1, 1), 'edge')
+    #dx_gc = np.pad(dx, (1, 1), 'edge')
+    dx_gc = generate_gc(dx, 1, bc_type)
 
     UL_gc = U + 0.5 * dx_gc[:, np.newaxis] * sigma_gc
     UR_gc = U - 0.5 * dx_gc[:, np.newaxis] * sigma_gc

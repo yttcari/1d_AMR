@@ -89,10 +89,12 @@ class PPMINterpolant:
         return Im, Ip
 
 
-def PPM(U, solver, dt, dx, N, X, **kwargs):
+def PPM(U, solver, dt, dx, N, X, bc_type, **kwargs):
     nvar = U.shape[1]
-    q = (np.pad(U, ((NG, NG), (0, 0)), 'edge'))
-    dx_extended = np.pad(dx, ((NG, NG)), 'edge')
+    #q = (np.pad(U, ((NG, NG), (0, 0)), 'edge'))
+    q = generate_gc(U, NG, bc_type)
+    #dx_extended = np.pad(dx, ((NG, NG)), 'edge')
+    dx_extended = generate_gc(dx, NG, bc_type)
 
     lo = NG
     hi = NG + N -1

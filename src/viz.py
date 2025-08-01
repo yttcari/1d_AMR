@@ -4,6 +4,21 @@ from tqdm import tqdm
 from matplotlib.animation import FuncAnimation
 import analytical
 
+def plot_analytical(X, t, type, init_con, ax):
+    # ax: list of ax from subplots
+    if type == 'sod':
+        rho_ana, u_ana, P_ana = analytical.get_sod_solution(X, t, *init_con)
+
+        ax[0].plot(X, rho_ana, '--')
+        ax[1].plot(X, u_ana, '--')
+        ax[2].plot(X, P_ana, '--')
+    elif type == 'plane':
+        rho_ana, u_ana, P_ana = analytical.get_plane_wave_solution(X, t, *init_con)
+
+        ax[0].plot(X, rho_ana, '--')
+        ax[1].plot(X, u_ana, '--')
+        ax[2].plot(X, P_ana, '--')
+
 def plot_amr_grid(grid_instance, title="AMR Grid Structure", label=False, ax=None):
     """
     Plots the 1D AMR grid hierarchy on a number line.
@@ -69,7 +84,7 @@ def plot_amr_grid(grid_instance, title="AMR Grid Structure", label=False, ax=Non
     if ax is None:
         plt.show()
 
-def plot_amr_value(grid, ax=None, analytic=None):
+def plot_amr_value(grid, ax=None, type=None, init_con=None):
     active_cells = grid.get_all_active_cells()
 
     prim = np.array([cell.prim for cell in active_cells])
@@ -93,12 +108,8 @@ def plot_amr_value(grid, ax=None, analytic=None):
     for i in range(len(ax)):
         ax[i].plot(X, prim[:, i])
 
-    if analytic is not None:
-        rho_ana, u_ana, P_ana = analytical.get_sod_solution(X, grid.t, *analytic)
-
-        ax[0].plot(X, rho_ana, '--')
-        ax[1].plot(X, u_ana, '--')
-        ax[2].plot(X, P_ana, '--')
+    if type is not None:
+        plot_analytical(X, grid.t, type, init_con, ax)
 
     plt.tight_layout()
 
@@ -119,8 +130,7 @@ def get_prim_history(grid_history):
 
     return rho, u, p, X
 
-
-def animate(history, filename=None, fps=10, dpi=100, analytic=None):
+def animate(history, filename=None, fps=10, dpi=100, type=None, init_con=None):
     """
     Creates and displays an animation of the AMR solution using the collected history data.
 
@@ -134,10 +144,11 @@ def animate(history, filename=None, fps=10, dpi=100, analytic=None):
 
     all_densities, all_speeds, all_pressures, all_X = get_prim_history(history)
 
-    rho_ymin, rho_ymax = np.min(np.concatenate(all_densities)) * 0.95, np.max(np.concatenate(all_densities)) * 1.05
-    u_ymin, u_ymax = np.min(np.concatenate(all_speeds)) * 0.95 - 0.1, np.max(np.concatenate(all_speeds)) * 1.05 + 0.1
-    p_ymin, p_ymax = np.min(np.concatenate(all_pressures)) * 0.95, np.max(np.concatenate(all_pressures)) * 1.05
+    rho_ymin, rho_ymax = np.min(np.concatenate(all_densities)), np.max(np.concatenate(all_densities))
+    u_ymin, u_ymax = np.min(np.concatenate(all_speeds)), np.max(np.concatenate(all_speeds))
+    p_ymin, p_ymax = np.min(np.concatenate(all_pressures)), np.max(np.concatenate(all_pressures))
 
+    print(rho_ymax, rho_ymin)
     ax[0].set_ylim(rho_ymin, rho_ymax)
     ax[1].set_ylim(u_ymin, u_ymax)
     ax[2].set_ylim(p_ymin, p_ymax)
@@ -160,12 +171,8 @@ def animate(history, filename=None, fps=10, dpi=100, analytic=None):
         ax[2].cla()
         ax[3].cla()
 
-        if analytic is not None:
-            rho_ana, u_ana, P_ana = analytical.get_sod_solution(all_X[frame_idx], history[frame_idx].t, *analytic)
-
-            ax[0].plot(all_X[frame_idx], rho_ana, '--')
-            ax[1].plot(all_X[frame_idx], u_ana, '--')
-            ax[2].plot(all_X[frame_idx], P_ana, '--')
+        if type is not None:
+            plot_analytical(all_X[frame_idx], history[frame_idx].t, type, init_con, ax)
 
         ax[0].set_xlabel(r"$x$")
         ax[0].set_ylabel(r"$\rho$")

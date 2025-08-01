@@ -1,6 +1,7 @@
 import numpy as np
 import cell
 from reconstruct import *
+from misc import generate_gc
 
 # Grid that stores box
 class grid:
@@ -11,6 +12,9 @@ class grid:
         self.grid = {} 
         self.id_counter = 0
         self.reconstruction = ppm_refine
+        self.t = 0
+
+        self.bc_type = 'outflow'
 
         # Initialization
         for n in range(self.N):
@@ -176,7 +180,7 @@ class grid:
 
         prim_with_gc = np.zeros((prim.shape[0] + 2, prim.shape[1]))
 
-        prim_with_gc = np.pad(prim, ((1, 1), (0, 0)), 'edge')
+        prim_with_gc = generate_gc(prim, 1, self.bc_type)#np.pad(prim, ((1, 1), (0, 0)), 'edge')
 
         # Central difference
         dU = prim_with_gc[2:, :] - prim_with_gc[:-2, :]

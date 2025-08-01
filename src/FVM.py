@@ -1,11 +1,8 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import copy
 from tqdm import tqdm
 from reconstruct import dx_method
-from numba import njit
 from misc import *    
-
 
 def dt_method(dt_type, dx_type, U, **kwargs):
     func = dx_method(dx_type)
@@ -125,9 +122,10 @@ def solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4', **kwargs):
 
             if t + dt > t_final:
                 dt = t_final - t
+            print(grid.bc_type)
 
             # Update conserved variables
-            dU = dt_method(U=U, solver=solver, dt=dt, dx=dx, N=N, X=X, dt_type=dt_type, dx_type=dx_type)
+            dU = dt_method(U=U, solver=solver, bc_type=grid.bc_type, dt=dt, dx=dx, N=N, X=X, dt_type=dt_type, dx_type=dx_type)
             U += dU
             grid.update(con2prim_grid(U))
 
@@ -170,7 +168,7 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
 
             if t + dt > t_final:
                 dt = t_final - t
-            dU = dt_method(U=U, solver=solver, dt=dt, dx=dx, N=N, X=X, dt_type=dt_type, dx_type=dx_type)
+            dU = dt_method(U=U, solver=solver, dt=dt, dx=dx, N=N, X=X, dt_type=dt_type, dx_type=dx_type, bc_type=grid.bc_type)
 
             U += dU
             grid.update(con2prim_grid(U))
