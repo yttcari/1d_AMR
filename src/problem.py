@@ -1,5 +1,5 @@
 import numpy as np
-from FVM import GAMMA
+from misc import GAMMA, update_GAMMA
 
 def sod_rod_tube(grid):
     LEFT = np.array([1.0, 0.0, 1.0])
@@ -27,11 +27,7 @@ def sod_rod_tube(grid):
 
     return grid, init_con
 
-def lax_tube(grid):
-    LEFT = np.array([0.445, 0.698, 3.528])
-    RIGHT = np.array([0.5, 0.0, 0.576])
-
-    x_diaphragm = grid.L / 2
+def plane_wave(grid):
 
     #  [rho_L, u_L, P_L, rho_R, u_R, P_R, gamma, x_diaphragm] for plotting analytical solution
     #init_con = np.concatenate([LEFT, RIGHT, np.array([GAMMA, x_diaphragm])])
@@ -42,13 +38,15 @@ def lax_tube(grid):
         print("No active cells found to initialize.")
         return
 
-    cell_x_coords = np.array([cell.x for cell in active_cells])
+    bg_prim = np.array([1, 1, 3/5])
 
-    # Iterate through active cells and set their primitive variables directly
+    k = 2 * np.pi / grid.L
+    A = 10 ** -6
+
+    update_GAMMA(5/3)
+
     for i, cell in enumerate(active_cells):
-        if cell_x_coords[i] < x_diaphragm:
-            cell.prim = list(LEFT)
-        else:
-            cell.prim = list(RIGHT)
+        cell.prim = bg_prim +  np.array([A * np.sin(k * cell.x), A * np.sin(k * cell.x), A * np.sin(k * cell.x)])
 
-    return grid
+    init_con = np.concatenate([np.array([A, grid.L]), bg_prim])
+    return grid, init_con

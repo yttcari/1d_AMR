@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import fsolve
 
-def f_P_star(P_star, P_L, rho_L, u_L, c_L, P_R, rho_R, u_R, c_R, gamma):
+def f_P_star(P_star, P_L, rho_L, u_L, c_L, P_R, rho_R, u_R, c_R, gamma, **kwargs):
     term1 = (P_star / P_L)**((gamma - 1) / (2 * gamma))
     u_rarefaction_side = u_L + (2 * c_L / (gamma - 1)) * (1 - term1)
 
@@ -10,7 +10,7 @@ def f_P_star(P_star, P_L, rho_L, u_L, c_L, P_R, rho_R, u_R, c_R, gamma):
 
     return u_rarefaction_side - u_shock_side
 
-def get_sod_solution(x, t_plot, rho_L, u_L, P_L, rho_R, u_R, P_R, gamma, x_diaphragm):
+def get_sod_solution(x, t_plot, rho_L, u_L, P_L, rho_R, u_R, P_R, gamma, x_diaphragm, **kwargs):
     c_L = np.sqrt(gamma * P_L / rho_L)
     c_R = np.sqrt(gamma * P_R / rho_R)
 
@@ -65,3 +65,14 @@ def get_sod_solution(x, t_plot, rho_L, u_L, P_L, rho_R, u_R, P_R, gamma, x_diaph
             u[i] = u_R
 
     return np.array(rho), np.array(u), np.array(P)
+
+def get_plane_wave_solution(x, t, A=1e-6, L=1, rho0=1.0, u0=1.0, p0=3/5, gamma=5/3, **kwargs):
+    k = 2 * np.pi / L
+    cs = np.sqrt(gamma * p0 / rho0)
+    phase = k * (x - (u0 + cs) * t)
+    delta = A * np.sin(phase)
+    return np.array([
+        rho0 + delta,  # density
+        u0 + delta,    # velocity
+        p0 + delta     # pressure
+    ])
