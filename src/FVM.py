@@ -1,22 +1,9 @@
 import numpy as np
 import copy
 from tqdm import tqdm
-from reconstruct import dx_method
+from reconstruct import dt_method
 from misc import *    
-
-def dt_method(dt_type, dx_type, U, **kwargs):
-    func = dx_method(dx_type)
-    if dt_type == 'euler':
-        dU = func(U=U, **kwargs)
-        return dU
-    elif dt_type == 'rk4':
-        k1 = func(U=U, **kwargs)
-        k2 = func(U=U + 0.5 * k1, **kwargs)
-        k3 = func(U=U + k2 * 0.5, **kwargs)
-        k4 = func(U=U + k3, **kwargs)
-        
-        return (k1 + 2 * k2 + 2 * k3 + k4) / 6
-
+import problem
 
 ############### Solver ###############
 
@@ -122,11 +109,9 @@ def solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4', **kwargs):
 
             if t + dt > t_final:
                 dt = t_final - t
-            print(grid.bc_type)
 
             # Update conserved variables
-            dU = dt_method(U=U, solver=solver, bc_type=grid.bc_type, dt=dt, dx=dx, N=N, X=X, dt_type=dt_type, dx_type=dx_type)
-            U += dU
+            U = dt_method(U=U, solver=solver, bc_type=grid.bc_type, dt=dt, dx=dx, N=N, X=X, dt_type=dt_type, dx_type=dx_type)
             grid.update(con2prim_grid(U))
 
             # Update time and add to history
@@ -168,9 +153,7 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
 
             if t + dt > t_final:
                 dt = t_final - t
-            dU = dt_method(U=U, solver=solver, dt=dt, dx=dx, N=N, X=X, dt_type=dt_type, dx_type=dx_type, bc_type=grid.bc_type)
-
-            U += dU
+            U = dt_method(U=U, solver=solver, dt=dt, dx=dx, N=N, X=X, dt_type=dt_type, dx_type=dx_type, bc_type=grid.bc_type)
             grid.update(con2prim_grid(U))
 
             # Update time and add to history
@@ -197,3 +180,21 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
     print("FINISHED")
     
     return history
+
+
+def run_sim(grid1, max_level, bc_type, prob, solve_method, epsilon, t_final, dt_type, dx_type):
+    grid1.max_level = max_level
+    grid1.bc_type = bc_type
+    if prob == 'plane':
+        grid1, init_con = problem.plane_wave(grid1)
+    elif prob == 'sod':
+        grid1, init_con = problem.sod_rod_tube(grid1)
+    
+    if solve_method == 'old':
+        print("Using old method now")
+        grid1_history = solve(HLL_flux, grid1, t_final=t_final, refine_epsilon=epsilon, coarse_epsilon=epsilon*10, dt_type=dt_type, dx_type=dx_type)
+    elif solve_method == 'new':
+        print("Using new method now")
+        grid1_history = new_solve(HLL_flux, grid1, t_final=t_final, epsilon=epsilon, dt_type=dt_type, dx_type=dx_type)
+
+    return grid1_history, init_con

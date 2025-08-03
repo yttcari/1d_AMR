@@ -38,7 +38,7 @@ def plane_wave(grid):
         print("No active cells found to initialize.")
         return
 
-    bg_prim = np.array([1, 1, 3/5])
+    bg_prim = np.array([1, 0, 3/5])
 
     k = 2 * np.pi / grid.L
     A = 10 ** -6

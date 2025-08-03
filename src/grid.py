@@ -121,13 +121,14 @@ class grid:
 
         # Update parent prim
         parent_cell.prim = np.zeros(np.array(parent_cell.prim).shape)
-
+        total_x = 0
         for child_id in parent_cell.children:
             child = self.get_cell_by_id(child_id)
 
-            parent_cell.prim += child.prim
+            parent_cell.prim += child.prim * child.dx
+            total_x += child.dx
 
-        parent_cell.prim /= len(parent_cell.children)
+        parent_cell.prim /= total_x
 
         # Recursively remove children
         def _remove_subtree_from_grid(cell_id_to_remove):
@@ -172,7 +173,7 @@ class grid:
 
         return cells_by_level
     
-    def flag_cells(self, refine_epsilon=0.5, buffer_layers=1, corase_epsilon=0.3, **kwargs):
+    def flag_cells(self, refine_epsilon=0.5, buffer_layers=1, coarse_epsilon=0.3, **kwargs):
         active_cell = self.get_all_active_cells()
         N = len(active_cell)
 
@@ -187,7 +188,7 @@ class grid:
 
         grad = np.abs(dU)
         refine_cell_index = np.unique(np.where(grad > refine_epsilon)[0])
-        coarse_cell_index = np.unique(np.where(grad < corase_epsilon)[0])
+        coarse_cell_index = np.unique(np.where(grad < coarse_epsilon)[0])
 
         # find cell to be flagged
         for i in refine_cell_index:

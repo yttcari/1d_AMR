@@ -1,4 +1,5 @@
 import numpy as np
+import analytical
 
 CFL = 0.5   
 GAMMA = 1.4
@@ -118,28 +119,6 @@ def get_wavespeed(UL):
 
     return cL
 
-# For PPM
-def eigen_test(U):
-    u = U[:, 1]         
-    rho = U[:, 0]
-    cs = get_wavespeed(U)  
-
-    ev = np.stack([u - cs, u, u + cs], axis=-1)  
-
-    lvec = np.stack([
-        np.stack([np.zeros_like(rho), -0.5 * rho / cs, 0.5 / (cs ** 2)], axis=-1),  # u - c
-        np.stack([np.ones_like(rho), np.zeros_like(rho), -1.0 / (cs ** 2)], axis=-1),  # u
-        np.stack([np.zeros_like(rho),  0.5 * rho / cs, 0.5 / (cs ** 2)], axis=-1)   # u + c
-    ], axis=1)
-
-    rvec = np.stack([
-        np.stack([np.ones_like(rho), -cs / rho, cs**2], axis=-1),  # u - c
-        np.stack([np.ones_like(rho), np.zeros_like(rho), np.zeros_like(rho)], axis=-1),  # u
-        np.stack([np.ones_like(rho), cs / rho, cs**2], axis=-1)  # u + c
-    ], axis=1)
-
-    return ev, lvec, rvec
-
 def eigen(rho, u, p, gamma):
     """Compute the left and right eigenvectors and the eigenvalues for
     the Euler equations.
@@ -205,3 +184,43 @@ def eigen(rho, u, p, gamma):
                      [1.0, cs / rho, cs**2]])  # u + c
 
     return ev, lvec, rvec
+
+
+def calc_MSE(U, X, t, dx, type, init_con):
+    def rms(compu_data, analytic_data, dx):
+        numerator = np.sum(np.abs(compu_data - analytic_data) * dx)
+        return (numerator / np.sum(dx)) ** 2
+    
+   
+    grid_solution = U
+    
+    rho_numeric = grid_solution[:, 0]
+    u_numeric = grid_solution[:, 1]
+    P_numeric = grid_solution[:, 2]
+    if type == 'sod':
+        rho_analytic, u_analytic, P_analytic = analytical.get_sod_solution(X, t, *init_con)
+    elif type == 'plane':
+        rho_analytic, u_analytic, P_analytic = analytical.get_plane_wave_solution(X, t, *init_con)
+    else:
+        raise ValueError("The entered problem type has not been implemented")
+
+    rho_MSE = rms(rho_numeric, rho_analytic, dx) 
+    u_MSE = rms(u_numeric, u_analytic, dx) 
+    P_MSE = rms(P_numeric, P_analytic, dx) 
+
+    return np.sqrt(rho_MSE + u_MSE + P_MSE)
+
+def calc_MSE_grid(grid, type, init_con):
+
+    grid_cells = grid.get_all_active_cells()
+
+    X = np.array([c.x for c in grid_cells])
+    dx = np.array([c.dx for c in grid_cells])
+    t = grid.t
+    grid_solution = np.array([c.prim for c in grid_cells])
+    
+    return calc_MSE(grid_solution, X, t, dx, type, init_con)
+
+def minmod(r):
+    return np.maximum(0, np.minimum(1, r))
+

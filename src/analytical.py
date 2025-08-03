@@ -66,7 +66,7 @@ def get_sod_solution(x, t_plot, rho_L, u_L, P_L, rho_R, u_R, P_R, gamma, x_diaph
 
     return np.array(rho), np.array(u), np.array(P)
 
-def get_plane_wave_solution(x, t, A=1e-6, L=1, rho0=1.0, u0=1.0, p0=3/5, gamma=5/3, **kwargs):
+def get_plane_wave_solution(x, t, A, L, rho0, u0, p0, gamma=5/3, **kwargs):
     k = 2 * np.pi / L
     cs = np.sqrt(gamma * p0 / rho0)
     phase = k * (x - (u0 + cs) * t)

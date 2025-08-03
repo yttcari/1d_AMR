@@ -1,7 +1,14 @@
 import numpy as np
-from misc import generate_gc
+from misc import generate_gc, minmod
 
 NG = 1
+
+def van_leer(a, b):
+    return np.where((a * b) <= 0.0, 0.0, (2 * a * b) / (a + b + 1e-12))
+
+def mc_limiter(a, b):
+    return np.where(a * b <= 0, 0.0, np.sign(a) * np.minimum(np.abs(a + b) / 2, np.minimum(2*np.abs(a), 2*np.abs(b))))
+
 
 def generate_X_gc(X, NG):
     N = len(X)
@@ -34,15 +41,11 @@ def get_mm(U_arr, X_arr):
 
     return slope_minus
 
-def minmod(a, b):
-    sigma = np.where(a * b < 0.0, 0.0, np.where(np.abs(a) < np.abs(b), a, b))
-    return sigma
-
 def get_slope(U, X):
-    slope_p = get_mp(U, X)
-    slope_m = get_mm(U, X)
+    s = minmod(get_mp(U, X))
+    t = minmod(get_mm(U, X))
 
-    return minmod(slope_p, slope_m)
+    return np.where(s * t < 0.0, 0.0, np.where(np.abs(s) < np.abs(t), s, t))
 
 def MUSCL(U, solver, dt, dx, N, X, bc_type='outflow', **kwargs):
     num_vars = U.shape[1]
