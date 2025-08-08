@@ -118,9 +118,9 @@ def solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4', **kwargs):
             t += dt
             grid.t = t
 
-            grid.flag_cells(**kwargs)
-            grid.refine()
-            grid.coarse()
+            #grid.flag_cells(**kwargs)
+            #grid.refine()
+            #grid.coarse()
 
             pbar.update(dt)
 
@@ -139,7 +139,7 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
         while t < t_final:
             history.append(copy.deepcopy(grid))
 
-            grid.refine(id_only=False) # Refine all cell first
+            #grid.refine(id_only=False) # Refine all cell first
             active_cells = grid.get_all_active_cells()
             N = len(active_cells)
             grid_prim = np.array([c.prim for c in active_cells])
@@ -173,7 +173,7 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
 
                     if np.all(diff_l < epsilon) and np.all(diff_r < epsilon):
                         grid.coarsen_cell(active_cells[c].parent) # coarse all cell that has diff < epsilon
-            new_flag(**kwargs)
+            #new_flag(**kwargs)
 
             pbar.update(dt)
 

@@ -1,10 +1,7 @@
 import numpy as np
-from misc import generate_gc, minmod
+from misc import generate_gc
 
-NG = 1
-
-def van_leer(a, b):
-    return np.where((a * b) <= 0.0, 0.0, (2 * a * b) / (a + b + 1e-12))
+NG = 2
 
 def mc_limiter(a, b):
     return np.where(a * b <= 0, 0.0, np.sign(a) * np.minimum(np.abs(a + b) / 2, np.minimum(2*np.abs(a), 2*np.abs(b))))
@@ -42,31 +39,37 @@ def get_mm(U_arr, X_arr):
     return slope_minus
 
 def get_slope(U, X):
+    """ 
     s = minmod(get_mp(U, X))
     t = minmod(get_mm(U, X))
 
     return np.where(s * t < 0.0, 0.0, np.where(np.abs(s) < np.abs(t), s, t))
+    """
+    s = (get_mp(U, X))
+    t = (get_mm(U, X))
+
+    return mc_limiter(s, t)
 
 def MUSCL(U, solver, dt, dx, N, X, bc_type='outflow', **kwargs):
     num_vars = U.shape[1]
     #U = np.pad(U, ((NG, NG), (0, 0)), 'edge')
-    U = generate_gc(U, NG, bc_type)
-    X = generate_X_gc(X, 1) # add ghost cell
+    U_gc = generate_gc(U, NG, bc_type)
+    X_gc = generate_X_gc(X, NG) # add ghost cell
 
     #print(U_ext.shape, X_ext.shape, U.shape, X.shape)
-    sigma_gc = get_slope(U, X)
+    sigma_gc = get_slope(U_gc, X_gc)
 
     #dx_gc = np.pad(dx, (1, 1), 'edge')
-    dx_gc = generate_gc(dx, 1, bc_type)
+    dx_gc = generate_gc(dx, NG, bc_type)
 
-    UL_gc = U + 0.5 * dx_gc[:, np.newaxis] * sigma_gc
-    UR_gc = U - 0.5 * dx_gc[:, np.newaxis] * sigma_gc
+    UL_gc = U_gc + 0.5 * dx_gc[:, np.newaxis] * sigma_gc
+    UR_gc = U_gc - 0.5 * dx_gc[:, np.newaxis] * sigma_gc
 
     flux = np.zeros((N + 1, num_vars))
 
     for i in range(N + 1):
-        flux[i] = solver(UL_gc[i], UR_gc[i+1])
+        flux[i] = solver(UR_gc[i+NG-1], UL_gc[i+NG])
     
-    dU = (dt / dx[:, np.newaxis]) * (flux[1:] - flux[:-1])
+    dU = (1 / dx[:, np.newaxis]) * (flux[1:] - flux[:-1])
 
     return -dU

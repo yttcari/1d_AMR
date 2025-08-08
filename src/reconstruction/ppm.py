@@ -202,6 +202,6 @@ def PPM(U, solver, dt, dx, N, X, bc_type, **kwargs):
     for i in range(lo, hi+2):
         flux[i-NG] = (solver(q_left[i], q_right[i]))
 
-    dU = (dt / dx[:, np.newaxis]) * (flux[1:] - flux[:-1])
+    dU = (1 / dx[:, np.newaxis]) * (flux[1:] - flux[:-1])
 
     return -dU

@@ -9,6 +9,6 @@ def godunov(U, solver, dt, dx, N, X, bc_type, **kwargs):
     flux = np.zeros((N + 1, num_vars))
     for i in range(N + 1):
         flux[i] = solver(U[i], U[i+1])
-    dU = (dt / dx[:, np.newaxis]) * (flux[1:] - flux[:-1])
+    dU = (1 / dx[:, np.newaxis]) * (flux[1:] - flux[:-1])
 
     return -dU
