@@ -6,7 +6,6 @@ NG = 2
 def mc_limiter(a, b):
     return np.where(a * b <= 0, 0.0, np.sign(a) * np.minimum(np.abs(a + b) / 2, np.minimum(2*np.abs(a), 2*np.abs(b))))
 
-
 def generate_X_gc(X, NG):
     N = len(X)
     X_with_gc = np.zeros(N + NG * 2)
@@ -39,12 +38,6 @@ def get_mm(U_arr, X_arr):
     return slope_minus
 
 def get_slope(U, X):
-    """ 
-    s = minmod(get_mp(U, X))
-    t = minmod(get_mm(U, X))
-
-    return np.where(s * t < 0.0, 0.0, np.where(np.abs(s) < np.abs(t), s, t))
-    """
     s = (get_mp(U, X))
     t = (get_mm(U, X))
 
@@ -62,8 +55,8 @@ def MUSCL(U, solver, dt, dx, N, X, bc_type='outflow', **kwargs):
     #dx_gc = np.pad(dx, (1, 1), 'edge')
     dx_gc = generate_gc(dx, NG, bc_type)
 
-    UL_gc = U_gc + 0.5 * dx_gc[:, np.newaxis] * sigma_gc
-    UR_gc = U_gc - 0.5 * dx_gc[:, np.newaxis] * sigma_gc
+    UL_gc = U_gc - 0.5 * dx_gc[:, np.newaxis] * sigma_gc
+    UR_gc = U_gc + 0.5 * dx_gc[:, np.newaxis] * sigma_gc
 
     flux = np.zeros((N + 1, num_vars))
 
