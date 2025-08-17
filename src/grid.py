@@ -179,48 +179,41 @@ class grid:
 
         prim = np.array([c.prim for c in active_cell])
 
-        prim_with_gc = np.zeros((prim.shape[0] + 2, prim.shape[1]))
-
-        prim_with_gc = generate_gc(prim, 1, self.bc_type)#np.pad(prim, ((1, 1), (0, 0)), 'edge')
+        prim_with_gc = generate_gc(prim, 1, self.bc_type)
 
         # Central difference
-        dU = prim_with_gc[2:, :] - prim_with_gc[:-2, :]
+        dU = prim_with_gc[2:, :] + prim_with_gc[:-2, :] - prim_with_gc[1:-1, :]
 
         grad = np.abs(dU)
-        refine_cell_index = np.unique(np.where(grad > refine_epsilon)[0])
-        coarse_cell_index = np.unique(np.where(grad < coarse_epsilon)[0])
+        refine_cell_indices = np.unique(np.where(grad > refine_epsilon)[0])
+        
+        all_refine_indices = set(refine_cell_indices)
 
-        # find cell to be flagged
-        for i in refine_cell_index:
+        # buffer
+        for i in refine_cell_indices:
+            for buffer_no in range(1, buffer_layers + 1):
+                if i + buffer_no < N:
+                    all_refine_indices.add(i + buffer_no)
+                if i - buffer_no >= 0:
+                    all_refine_indices.add(i - buffer_no)
+
+        # Flag cells for refinement
+        for i in all_refine_indices:
             if active_cell[i].level < self.max_level:
                 active_cell[i].need_refine = True
-
-            for buffer_no in range(1, buffer_layers+1):
-                cell_id_bef = np.min([i + buffer_no, N-1])
-                cell_id_after = np.max([i - buffer_no, 0])
-
-                cell_bef = active_cell[cell_id_bef]
-                cell_after = active_cell[cell_id_after]
-
-                if cell_bef.level < self.max_level:
-                    cell_bef.need_refine = True
-
-                if cell_after.level < self.max_level:
-                    cell_after.need_refine = True
-
-        for i in coarse_cell_index:
-            if active_cell[i].level > 0:
-                active_cell[i].need_coarse = True
-
-            for buffer_no in range(1, buffer_layers+1):
-                cell_id_bef = np.min([i + buffer_no, N-1])
-                cell_id_after = np.max([i - buffer_no, 0])
-
-                if active_cell[cell_id_bef].level > 0:
-                    active_cell[cell_id_bef].need_coarse = True
-
-                if active_cell[cell_id_after].level > 0:
-                    active_cell[cell_id_after].need_coarse = True
+                
+        # Coarsening logic
+        coarse_cell_indices = np.unique(np.where(grad < coarse_epsilon)[0])
+        for i in coarse_cell_indices:
+            if active_cell[i].level > 0 and not active_cell[i].need_refine:
+                can_coarse = True
+                if i > 0 and active_cell[i-1].need_refine:
+                    can_coarse = False
+                if i < N-1 and active_cell[i+1].need_refine:
+                    can_coarse = False
+                
+                if can_coarse:
+                    active_cell[i].need_coarse = True
 
 
     def refine(self, id_only=True, **kwargs):

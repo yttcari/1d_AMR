@@ -118,9 +118,9 @@ def solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4', **kwargs):
             t += dt
             grid.t = t
 
-            #grid.flag_cells(**kwargs)
-            #grid.refine()
-            #grid.coarse()
+            grid.flag_cells(**kwargs)
+            grid.refine()
+            grid.coarse()
 
             pbar.update(dt)
 
@@ -139,7 +139,7 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
         while t < t_final:
             history.append(copy.deepcopy(grid))
 
-            #grid.refine(id_only=False) # Refine all cell first
+            grid.refine(id_only=False) # Refine all cell first
             active_cells = grid.get_all_active_cells()
             N = len(active_cells)
             grid_prim = np.array([c.prim for c in active_cells])
@@ -173,7 +173,7 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
 
                     if np.all(diff_l < epsilon) and np.all(diff_r < epsilon):
                         grid.coarsen_cell(active_cells[c].parent) # coarse all cell that has diff < epsilon
-            #new_flag(**kwargs)
+            new_flag(**kwargs)
 
             pbar.update(dt)
 
@@ -182,7 +182,7 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
     return history
 
 
-def run_sim(grid1, max_level, bc_type, prob, solve_method, epsilon, t_final, dt_type, dx_type):
+def run_sim(grid1, max_level, bc_type, prob, solve_method, refine_epsilon, coarse_epsilon, t_final, dt_type, dx_type):
     grid1.max_level = max_level
     grid1.bc_type = bc_type
     if prob == 'plane':
@@ -192,9 +192,9 @@ def run_sim(grid1, max_level, bc_type, prob, solve_method, epsilon, t_final, dt_
     
     if solve_method == 'old':
         print("Using old method now")
-        grid1_history = solve(HLL_flux, grid1, t_final=t_final, refine_epsilon=epsilon, coarse_epsilon=epsilon*10, dt_type=dt_type, dx_type=dx_type)
+        grid1_history = solve(HLL_flux, grid1, t_final=t_final, refine_epsilon=refine_epsilon, coarse_epsilon=coarse_epsilon, dt_type=dt_type, dx_type=dx_type)
     elif solve_method == 'new':
         print("Using new method now")
-        grid1_history = new_solve(HLL_flux, grid1, t_final=t_final, epsilon=epsilon, dt_type=dt_type, dx_type=dx_type)
+        grid1_history = new_solve(HLL_flux, grid1, t_final=t_final, epsilon=coarse_epsilon, dt_type=dt_type, dx_type=dx_type)
 
     return grid1_history, init_con
