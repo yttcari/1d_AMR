@@ -1,62 +1,89 @@
 import numpy as np
-from misc import generate_gc
+from misc import generate_gc, prim2con_grid, con2prim_grid
 
-NG = 2
+class MUSCL_reconstruction:
+    def __init__(self):
+        self.NG = 2
 
-def mc_limiter(a, b):
-    return np.where(a * b <= 0, 0.0, np.sign(a) * np.minimum(np.abs(a + b) / 2, np.minimum(2*np.abs(a), 2*np.abs(b))))
+    def update(self, prim, X, dx, bc_type):
+        self.prim_gc = generate_gc(prim, self.NG, bc_type)
+        self.dx_gc = generate_gc(dx, self.NG, bc_type)
+        self.X_gc = self.generate_X_gc(X, self.NG)
 
-def generate_X_gc(X, NG):
-    N = len(X)
-    X_with_gc = np.zeros(N + NG * 2)
+        self.mp = self.get_mp()
+        self.mm = self.get_mm()
 
-    X_with_gc[NG:-NG] = X
+        self.slope = self.mc_limiter(self.mp, self.mm)
 
-    dx_left = X_with_gc[NG+1] - X_with_gc[NG]
-    dx_right = X_with_gc[-NG-1] - X_with_gc[-NG-2]
+        self.prim_L_gc, self.prim_R_gc = self.get_boudary()
 
-    for i in range(NG):
-        X_with_gc[NG - 1 - i] = X_with_gc[NG - i] - dx_left # Left ghost cells
-        X_with_gc[NG + N + i] = X_with_gc[NG + N + i - 1] + dx_right # Right ghost cells
+        self.UL_gc = prim2con_grid(self.prim_L_gc)
+        self.UR_gc = prim2con_grid(self.prim_R_gc)
 
-    return X_with_gc
+    def mc_limiter(self, a, b):
+        return np.where(a * b <= 0, 0.0, np.sign(a) * np.minimum(np.abs(a + b) / 2, np.minimum(2*np.abs(a), 2*np.abs(b))))
 
-def get_mp(U_arr, X_arr):
-    dX = X_arr[1:] - X_arr[:-1]
-    # get slope from forward differencing
-    slope_plus = np.zeros_like(U_arr)
-    slope_plus[:-1] = (U_arr[1:] - U_arr[:-1]) / dX[:, np.newaxis]
+    def generate_X_gc(self, X, NG):
+        N = len(X)
+        X_with_gc = np.zeros(N + NG * 2)
 
-    return slope_plus
+        X_with_gc[NG:-NG] = X
 
-def get_mm(U_arr, X_arr):
-    dX = X_arr[1:] - X_arr[:-1]
-    # get slope from backward differencing
-    slope_minus = np.zeros_like(U_arr)
-    slope_minus[1:] = (U_arr[1:] - U_arr[:-1]) / dX[:, np.newaxis]
+        dx_left = X_with_gc[NG+1] - X_with_gc[NG]
+        dx_right = X_with_gc[-NG-1] - X_with_gc[-NG-2]
 
-    return slope_minus
+        for i in range(NG):
+            X_with_gc[NG - 1 - i] = X_with_gc[NG - i] - dx_left # Left ghost cells
+            X_with_gc[NG + N + i] = X_with_gc[NG + N + i - 1] + dx_right # Right ghost cells
 
-def get_slope(U, X):
-    s = (get_mp(U, X))
-    t = (get_mm(U, X))
+        return X_with_gc
 
-    return mc_limiter(s, t)
+    def get_mp(self):
+        dX = self.X_gc[1:] - self.X_gc[:-1]
+        # get slope from forward differencing
+        slope_plus = np.zeros_like(self.prim_gc)
+        slope_plus[:-1] = (self.prim_gc[1:] - self.prim_gc[:-1]) / dX[:, np.newaxis]
+
+        return slope_plus
+
+    def get_mm(self):
+        dX = self.X_gc[1:] - self.X_gc[:-1]
+        # get slope from backward differencing
+        slope_minus = np.zeros_like(self.prim_gc)
+        slope_minus[1:] = (self.prim_gc[1:] - self.prim_gc[:-1]) / dX[:, np.newaxis]
+
+        return slope_minus
+    
+    def get_boudary(self):
+        prim_L_gc = self.prim_gc - 0.5 * self.dx_gc[:, np.newaxis] * self.slope # left of cell i
+        prim_R_gc = self.prim_gc + 0.5 * self.dx_gc[:, np.newaxis] * self.slope # right of cell i
+
+        return prim_L_gc, prim_R_gc 
+
+    def reconstruct(self, cell_index, xi):
+        if xi > 0.5 or xi < -0.5:
+            raise ValueError("Xi Out of Bound.")
+        
+        i = cell_index + self.NG
+
+        slope = self.slope[i]
+        dx = self.dx_gc[i]
+
+        prim = self.prim_gc[i]
+
+        return prim + xi * dx * slope
+
 
 def MUSCL(U, solver, dt, dx, N, X, bc_type='outflow', **kwargs):
     num_vars = U.shape[1]
-    #U = np.pad(U, ((NG, NG), (0, 0)), 'edge')
-    U_gc = generate_gc(U, NG, bc_type)
-    X_gc = generate_X_gc(X, NG) # add ghost cell
+    prim = con2prim_grid(U)
+    recon = MUSCL_reconstruction()
+    recon.update(prim, X, dx, bc_type)
+    
+    NG = recon.NG
 
-    #print(U_ext.shape, X_ext.shape, U.shape, X.shape)
-    sigma_gc = get_slope(U_gc, X_gc)
-
-    #dx_gc = np.pad(dx, (1, 1), 'edge')
-    dx_gc = generate_gc(dx, NG, bc_type)
-
-    UL_gc = U_gc - 0.5 * dx_gc[:, np.newaxis] * sigma_gc
-    UR_gc = U_gc + 0.5 * dx_gc[:, np.newaxis] * sigma_gc
+    UL_gc = recon.UL_gc
+    UR_gc = recon.UR_gc
 
     flux = np.zeros((N + 1, num_vars))
 
