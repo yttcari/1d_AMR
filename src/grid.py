@@ -1,7 +1,15 @@
 import numpy as np
 import cell
-from reconstruct import *
 from misc import generate_gc
+from reconstruction import MUSCL
+
+def calc_epsilon(prim_with_gc):
+    # uses density to calculate the epsilon
+    # ref: Eq (25) in athena++
+    central_diff = np.abs(prim_with_gc[2:, :] - 2 * prim_with_gc[1:-1, :] + prim_with_gc[:-2, :])
+    epsilon = np.max(central_diff / prim_with_gc[1:-1], axis=1)
+    return epsilon
+
 
 # Grid that stores box
 class grid:
@@ -37,7 +45,7 @@ class grid:
             self.reconstruction = linear
         elif method == 'PPM':
             print("Using PPM reconstruction")
-            self.reconstruction = ppm_refine
+            self.reconstruction = linear
         else:
             raise ValueError("The entered method is not implemented.")
 
@@ -86,7 +94,7 @@ class grid:
         child_left_id = self.get_next_id()
         child_right_id = self.get_next_id()
 
-        child_left_prim, child_right_prim = self.reconstruction(active_cells, parent_cell)
+        child_left_prim, child_right_prim = self.reconstruction(active_cells, parent_cell, self.bc_type)
 
         child_left = cell.cell(
             prim=child_left_prim,
@@ -173,21 +181,19 @@ class grid:
 
         return cells_by_level
     
-    def flag_cells(self, refine_epsilon=0.5, buffer_layers=1, coarse_epsilon=0.3, **kwargs):
+    def flag_cells(self, refine_epsilon=0.01, buffer_layers=1, coarse_epsilon=0.005, **kwargs):
         active_cell = self.get_all_active_cells()
         N = len(active_cell)
 
         prim = np.array([c.prim for c in active_cell])
-
         prim_with_gc = generate_gc(prim, 1, self.bc_type)
 
-        # Central difference
-        dU = prim_with_gc[2:, :] + prim_with_gc[:-2, :] - prim_with_gc[1:-1, :]
-
-        grad = np.abs(dU)
+        # refinement criteria
+        grad = calc_epsilon(prim_with_gc)
         refine_cell_indices = np.unique(np.where(grad > refine_epsilon)[0])
-        
         all_refine_indices = set(refine_cell_indices)
+
+        coarse_cell_indices = np.unique(np.where(grad < coarse_epsilon)[0])
 
         # buffer
         for i in refine_cell_indices:
@@ -203,17 +209,9 @@ class grid:
                 active_cell[i].need_refine = True
                 
         # Coarsening logic
-        coarse_cell_indices = np.unique(np.where(grad < coarse_epsilon)[0])
         for i in coarse_cell_indices:
             if active_cell[i].level > 0 and not active_cell[i].need_refine:
-                can_coarse = True
-                if i > 0 and active_cell[i-1].need_refine:
-                    can_coarse = False
-                if i < N-1 and active_cell[i+1].need_refine:
-                    can_coarse = False
-                
-                if can_coarse:
-                    active_cell[i].need_coarse = True
+                active_cell[i].need_coarse = True
 
 
     def refine(self, id_only=True, **kwargs):
@@ -238,50 +236,28 @@ class grid:
 # ===== Refinement Method within grid =====
 from reconstruction import MUSCL
 # TODO Re-use reconstruction function?
-def zero_order(active_cells, parent_cell):
-    child_left_prim =parent_cell.prim
+def zero_order(active_cells, parent_cell, bc_type):
+    child_left_prim = parent_cell.prim
     child_right_prim = parent_cell.prim
     return child_left_prim, child_right_prim
 
-def linear(active_cells, parent_cell):
+def linear(active_cells, parent_cell, bc_type):
     parent_index = active_cells.index(parent_cell)
+    
+    recon = MUSCL.MUSCL_reconstruction()
 
-    left = active_cells[parent_index - 1] if parent_index > 0 else None
-    right = active_cells[parent_index + 1] if parent_index < len(active_cells) - 1 else None
-
-    if left is not None and right is not None:
-        # Use 3-point stencil for slope calculation
-        U_arr = np.array([left.prim, parent_cell.prim, right.prim])
-        X_arr = np.array([left.x, parent_cell.x, right.x])
-            
-        # Calculate slope using minmod limiters)
-        sigma = MUSCL.get_slope(U_arr, X_arr)
-        # Use slope at center point (index 1)
-        slope = sigma[1]
-
-    elif left is not None:
-            # Only left neighbor available - use one-sided difference
-        slope = (np.array(parent_cell.prim) - np.array(left.prim)) / (parent_cell.x - left.x)
-            
-    elif right is not None:
-            # Only right neighbor available - use one-sided difference  
-        slope = ((np.array(right.prim) - np.array(parent_cell.prim)) / (right.x - parent_cell.x))
-            
-    else:
-            # No neighbors available - use zero slope (constant interpolation)
-        slope = np.zeros_like(parent_cell.prim)
-
-    # Calculate child cell centers
-    child_left_center = (parent_cell.xmin + parent_cell.x) / 2
-    child_right_center = (parent_cell.x + parent_cell.xmax) / 2
-        
-    # Linear interpolation: U(x) = U_parent + slope * (x - x_parent)
-    child_left_prim = parent_cell.prim + slope * (child_left_center - parent_cell.x)
-    child_right_prim = parent_cell.prim + slope * (child_right_center - parent_cell.x)
+    prim = np.array([c.prim for c in active_cells])
+    X = np.array([c.x for c in active_cells])
+    dx = np.array([c.dx for c in active_cells])
+    
+    recon.update(prim, X, dx, bc_type)
+   
+    child_left_prim = recon.reconstruct(parent_index, xi=-0.25) # assumed binary division
+    child_right_prim = recon.reconstruct(parent_index, xi=0.25) # assumed binary division
 
     return child_left_prim, child_right_prim
 
-def ppm_refine(active_cells, parent_cell):
+def ppm_refine(active_cells, parent_cell, bc_type):
     parent_index = active_cells.index(parent_cell)
     
     # 4-point stencil
