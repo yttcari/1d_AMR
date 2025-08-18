@@ -1,5 +1,5 @@
 import numpy as np
-from misc import generate_gc, prim2con_grid, con2prim_grid
+from misc import generate_gc, prim2con_grid, con2prim_grid, generate_X_gc
 
 class MUSCL_reconstruction:
     def __init__(self):
@@ -8,7 +8,7 @@ class MUSCL_reconstruction:
     def update(self, prim, X, dx, bc_type):
         self.prim_gc = generate_gc(prim, self.NG, bc_type)
         self.dx_gc = generate_gc(dx, self.NG, bc_type)
-        self.X_gc = self.generate_X_gc(X, self.NG)
+        self.X_gc = generate_X_gc(X, self.NG, bc_type)
 
         self.mp = self.get_mp()
         self.mm = self.get_mm()
@@ -22,7 +22,7 @@ class MUSCL_reconstruction:
 
     def mc_limiter(self, a, b):
         return np.where(a * b <= 0, 0.0, np.sign(a) * np.minimum(np.abs(a + b) / 2, np.minimum(2*np.abs(a), 2*np.abs(b))))
-
+    """
     def generate_X_gc(self, X, NG):
         N = len(X)
         X_with_gc = np.zeros(N + NG * 2)
@@ -36,7 +36,7 @@ class MUSCL_reconstruction:
             X_with_gc[NG - 1 - i] = X_with_gc[NG - i] - dx_left # Left ghost cells
             X_with_gc[NG + N + i] = X_with_gc[NG + N + i - 1] + dx_right # Right ghost cells
 
-        return X_with_gc
+        return X_with_gc"""
 
     def get_mp(self):
         dX = self.X_gc[1:] - self.X_gc[:-1]

@@ -4,6 +4,10 @@ import analytical
 CFL = 0.5   
 GAMMA = 1.4
 
+Q_RHO = 0
+Q_U = 1
+Q_P = 2
+
 ############### Global Variable ###############
 def get_gamma():
     return GAMMA
@@ -102,7 +106,22 @@ def generate_gc(arr, NG, mode):
     if mode == 'outflow':
         return np.pad(arr, shape, 'edge')
     elif mode == 'periodic':
-        return np.pad(arr, shape, 'wrap')        
+        return np.pad(arr, shape, 'wrap')    
+
+def generate_X_gc(X, NG, bc_type):
+    N = len(X)
+    X_with_gc = np.zeros(N + NG * 2)
+
+    X_with_gc[NG:-NG] = X
+
+    dx_left = X_with_gc[NG+1] - X_with_gc[NG]
+    dx_right = X_with_gc[-NG-1] - X_with_gc[-NG-2]
+
+    for i in range(NG):
+        X_with_gc[NG - 1 - i] = X_with_gc[NG - i] - dx_left # Left ghost cells
+        X_with_gc[NG + N + i] = X_with_gc[NG + N + i - 1] + dx_right # Right ghost cells
+
+    return X_with_gc    
 
 # Estimate wavespeed
 def get_wavespeed(UL):
@@ -224,3 +243,17 @@ def calc_MSE_grid(grid, type, init_con):
 def minmod(r):
     return np.maximum(0, np.minimum(1, r))
 
+def second_d(q, x):
+
+    h1 = np.diff(x)[:-1]
+    h2 = np.diff(x)[1:]
+    
+    q_i = q[1:-1]
+    q_ip1 = q[2:]
+    q_im1 = q[:-2]
+    
+    numerator = h1 * q_ip1 + h2 * q_im1 - (h1 + h2) * q_i
+    denominator = h1 * h2 * (h1 + h2)
+    d2q_dx2 = 2 * numerator / denominator
+    
+    return d2q_dx2
