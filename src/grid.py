@@ -1,14 +1,24 @@
 import numpy as np
 import cell
-from misc import generate_gc
-from reconstruction import MUSCL
+from misc import *
 
-def calc_epsilon(prim_with_gc):
+def calc_epsilon(prim, X, dx, bc_type):
     # uses density to calculate the epsilon
     # ref: Eq (25) in athena++
-    central_diff = np.abs(prim_with_gc[2:, :] - 2 * prim_with_gc[1:-1, :] + prim_with_gc[:-2, :])
-    epsilon = np.max(central_diff / prim_with_gc[1:-1], axis=1)
-    return epsilon
+
+    def epsilon(q):
+        q_gc = generate_gc(q, 1, bc_type)
+        X_gc = generate_gc(X, 1, bc_type)
+
+        d2 = second_d(q_gc, X_gc)
+        numerator = np.abs(d2) * dx ** 2
+        return numerator / q
+    
+    rho_e = epsilon(prim[:, Q_RHO])
+    P_e = epsilon(prim[:, Q_P])
+    
+    e = np.maximum(rho_e, P_e)
+    return e
 
 
 # Grid that stores box
@@ -19,10 +29,10 @@ class grid:
         self.dx = {0: L/N}
         self.grid = {} 
         self.id_counter = 0
-        self.reconstruction = ppm_refine
+        self.reconstruction = None
         self.t = 0
 
-        self.bc_type = 'outflow'
+        self.bc_type = None
 
         # Initialization
         for n in range(self.N):
@@ -31,7 +41,7 @@ class grid:
                             id=cell_id)
             self.grid[cell_id] = new_cell 
 
-        self.max_level = 5
+        self.max_level = 3
 
     def update_max_level(self, new_max):
         self.max_level = new_max
@@ -45,7 +55,7 @@ class grid:
             self.reconstruction = linear
         elif method == 'PPM':
             print("Using PPM reconstruction")
-            self.reconstruction = linear
+            self.reconstruction = ppm_refine
         else:
             raise ValueError("The entered method is not implemented.")
 
@@ -186,22 +196,21 @@ class grid:
         N = len(active_cell)
 
         prim = np.array([c.prim for c in active_cell])
-        prim_with_gc = generate_gc(prim, 1, self.bc_type)
+        X = np.array([c.x for c in active_cell])
+        dx = np.array([c.dx for c in active_cell])
 
         # refinement criteria
-        grad = calc_epsilon(prim_with_gc)
-        refine_cell_indices = np.unique(np.where(grad > refine_epsilon)[0])
+        grad = calc_epsilon(prim, X, dx, self.bc_type)
+        refine_cell_indices = np.flatnonzero(grad > refine_epsilon)
         all_refine_indices = set(refine_cell_indices)
 
-        coarse_cell_indices = np.unique(np.where(grad < coarse_epsilon)[0])
+        coarse_cell_indices = np.flatnonzero(grad < coarse_epsilon)
 
         # buffer
         for i in refine_cell_indices:
             for buffer_no in range(1, buffer_layers + 1):
-                if i + buffer_no < N:
-                    all_refine_indices.add(i + buffer_no)
-                if i - buffer_no >= 0:
-                    all_refine_indices.add(i - buffer_no)
+                all_refine_indices.add(min(i + buffer_no, N-1))
+                all_refine_indices.add(max(i - buffer_no, 0))
 
         # Flag cells for refinement
         for i in all_refine_indices:
@@ -218,10 +227,10 @@ class grid:
         active_cell = self.get_all_active_cells(**kwargs)
 
         for c in active_cell:
-            if c.need_refine and id_only:
+            if c.need_refine and id_only: # i.e. only refine the give index
                 self.refine_cell(c.id, active_cell)
                 c.need_refine = False
-            if not id_only and c.level < self.max_level:
+            if not id_only and c.level < self.max_level: # i.e. refine all cells first
                 self.refine_cell(c.id, active_cell)
 
     def coarse(self, **kwargs):

@@ -161,17 +161,17 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
             grid.t = t
 
             # To coarse or not to coarse
-            def new_flag(epsilon, **kwargs):
+            def new_flag(coarse_epsilon, **kwargs):
                 for c in range(0, N, 2):
                     cell_l = active_cells[c]
                     cell_r = active_cells[c+1]
 
                     avg = (cell_l.prim + cell_r.prim) / 2
 
-                    diff_l = np.abs(cell_l.prim - avg)
-                    diff_r = np.abs(cell_r.prim - avg)
+                    diff_l = np.abs(cell_l.prim - avg) / avg
+                    diff_r = np.abs(cell_r.prim - avg) / avg
 
-                    if np.all(diff_l < epsilon) and np.all(diff_r < epsilon):
+                    if np.all(diff_l < coarse_epsilon) and np.all(diff_r < coarse_epsilon):
                         grid.coarsen_cell(active_cells[c].parent) # coarse all cell that has diff < epsilon
             new_flag(**kwargs)
 
@@ -195,6 +195,6 @@ def run_sim(grid1, max_level, bc_type, prob, solve_method, refine_epsilon, coars
         grid1_history = solve(HLL_flux, grid1, t_final=t_final, refine_epsilon=refine_epsilon, coarse_epsilon=coarse_epsilon, dt_type=dt_type, dx_type=dx_type)
     elif solve_method == 'new':
         print("Using new method now")
-        grid1_history = new_solve(HLL_flux, grid1, t_final=t_final, epsilon=coarse_epsilon, dt_type=dt_type, dx_type=dx_type)
+        grid1_history = new_solve(HLL_flux, grid1, t_final=t_final, coarse_epsilon=coarse_epsilon, dt_type=dt_type, dx_type=dx_type)
 
     return grid1_history, init_con
