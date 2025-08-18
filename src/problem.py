@@ -15,6 +15,8 @@ def sod_rod_tube(grid):
     if not active_cells:
         print("No active cells found to initialize.")
         return
+    
+    update_GAMMA(1.4)
 
     cell_x_coords = np.array([cell.x for cell in active_cells])
 
