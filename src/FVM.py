@@ -168,8 +168,8 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
 
                     avg = (cell_l.prim + cell_r.prim) / 2
 
-                    diff_l = np.abs(cell_l.prim - avg) / avg
-                    diff_r = np.abs(cell_r.prim - avg) / avg
+                    diff_l = np.abs(cell_l.prim - avg) / (avg + np.finfo(float).eps)
+                    diff_r = np.abs(cell_r.prim - avg) / (avg + np.finfo(float).eps)
 
                     if np.all(diff_l < coarse_epsilon) and np.all(diff_r < coarse_epsilon):
                         grid.coarsen_cell(active_cells[c].parent) # coarse all cell that has diff < epsilon
