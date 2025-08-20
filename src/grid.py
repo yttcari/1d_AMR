@@ -237,9 +237,19 @@ class grid:
         active_cell = self.get_all_active_cells(**kwargs)
 
         for c in active_cell:
-            if c.need_coarse and c.id in self.grid:
-                self.coarsen_cell(c.parent)
-                c.need_coarse = False
+            if c.need_coarse and c.id in self.grid and c.parent is not None:
+                parent_cell = self.get_cell_by_id(c.parent)
+                sibling = parent_cell.children
+
+                coarse_flag = True
+
+                for child_id in sibling:
+                    child = self.get_cell_by_id(child_id)
+                    coarse_flag = coarse_flag and child.need_coarse
+                    child.need_coarse = False
+
+                if coarse_flag:
+                    self.coarsen_cell(c.parent)
 
 
 # ===== Refinement Method within grid =====
