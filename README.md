@@ -1,14 +1,17 @@
-# First Order 
-## Reconstruction Method
-First order upwind method
-$U_i^{n+1}=U_i^n-\frac{\Delta t}{\Delta x}(F^n_{i+1/2}-F^n_{i-1/2})$
-where
-$F^i_{n+1/2}=\frac{U^i_{n+1}-U^i_n}{\Delta x}$
+# Implemented feature
+- 1D HLL solver
+- Sptial reconstruction: Godunov, MUSCL, PPM
+- Temporal reconstruction: RK1, RK2, RK3
+- Shock problem: Sod Rod Tube, Smooth problem: Linear Wave
 
-# Second Order 
-## Reconstruction Method
-Lax-Wendroff two step
+# TODO:
+- Re-use reconstruction method in refinement
+- Not sure why old reconstruction goes off when coarsening is on, no such effect is seen in new method
+- Test for converegence order in old/new AMR 
+- Re-do PPM reconstruction in cell refinement
+- Is there a fair way to compare the epsilon of two method? -> epsilon computation?
 
-
-# Credit
-https://leifh.folk.ntnu.no/teaching/tkt4140/._main072.html
+# Possible future direction...?
+- 2D
+- local time-stepping?
+- quite interesting to see the new method comparsion with Richardson interpolation?
