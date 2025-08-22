@@ -166,13 +166,27 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
                     cell_l = active_cells[c]
                     cell_r = active_cells[c+1]
 
-                    avg = (cell_l.prim + cell_r.prim) / 2
+                    cell_l_con = prim2con(cell_l.prim)
+                    cell_r_con = prim2con(cell_r.prim)
 
-                    diff_l = np.abs(cell_l.prim - avg) / (avg + np.finfo(float).eps)
-                    diff_r = np.abs(cell_r.prim - avg) / (avg + np.finfo(float).eps)
+
+                    avg = (cell_l_con + cell_r_con) / 2
+
+                    # Aboslution error
+                    diff_l = np.abs(cell_l_con - avg) / (avg + np.finfo(float).eps)
+                    diff_r = np.abs(cell_r_con - avg) / (avg + np.finfo(float).eps)
 
                     if np.all(diff_l < coarse_epsilon) and np.all(diff_r < coarse_epsilon):
                         grid.coarsen_cell(active_cells[c].parent) # coarse all cell that has diff < epsilon
+
+                    """
+                    # RMS
+                    error = np.max(np.sqrt(ms(np.array([cell_l_con, cell_r_con]), avg, cell_l.dx))) #/ avg)
+                    if error < coarse_epsilon:
+                        grid.coarsen_cell(active_cells[c].parent) # coarse all cell that has diff < epsilon
+                    """
+                    
+                    
             new_flag(**kwargs)
 
             pbar.update(dt)

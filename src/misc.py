@@ -1,7 +1,7 @@
 import numpy as np
 import analytical
 
-CFL = 0.5   
+CFL = 0.4   
 GAMMA = 1.4
 
 Q_RHO = 0
@@ -204,12 +204,11 @@ def eigen(rho, u, p, gamma):
 
     return ev, lvec, rvec
 
-
-def calc_MSE(U, X, t, dx, type, init_con):
-    def rms(compu_data, analytic_data, dx):
+def ms(compu_data, analytic_data, dx):
         numerator = np.sum(np.abs(compu_data - analytic_data) * dx)
         return (numerator / np.sum(dx)) ** 2
-    
+
+def calc_L1(U, X, t, dx, type, init_con):
    
     grid_solution = U
     
@@ -223,13 +222,13 @@ def calc_MSE(U, X, t, dx, type, init_con):
     else:
         raise ValueError("The entered problem type has not been implemented")
 
-    rho_MSE = rms(rho_numeric, rho_analytic, dx) 
-    u_MSE = rms(u_numeric, u_analytic, dx) 
-    P_MSE = rms(P_numeric, P_analytic, dx) 
+    rho_MSE = ms(rho_numeric, rho_analytic, dx) 
+    u_MSE = ms(u_numeric, u_analytic, dx) 
+    P_MSE = ms(P_numeric, P_analytic, dx) 
 
     return np.sqrt(rho_MSE + u_MSE + P_MSE)
 
-def calc_MSE_grid(grid, type, init_con):
+def calc_L1_grid(grid, type, init_con):
 
     grid_cells = grid.get_all_active_cells()
 
@@ -238,7 +237,7 @@ def calc_MSE_grid(grid, type, init_con):
     t = grid.t
     grid_solution = np.array([c.prim for c in grid_cells])
     
-    return calc_MSE(grid_solution, X, t, dx, type, init_con)
+    return calc_L1(grid_solution, X, t, dx, type, init_con)
 
 def minmod(r):
     return np.maximum(0, np.minimum(1, r))
@@ -255,5 +254,4 @@ def second_d(q, x):
     numerator = h1 * q_ip1 + h2 * q_im1 - (h1 + h2) * q_i
     denominator = h1 * h2 * (h1 + h2)
     d2q_dx2 = 2 * numerator / denominator
-    
     return d2q_dx2
