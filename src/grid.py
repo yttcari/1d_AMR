@@ -54,6 +54,7 @@ class grid:
             print("Using linear reconstruction")
             self.reconstruction = linear
         elif method == 'PPM':
+            raise NotImplementedError("PPM in construction")
             print("Using PPM reconstruction")
             self.reconstruction = ppm_refine
         else:
@@ -138,15 +139,15 @@ class grid:
             raise TypeError(f"Cell with ID {parent_cell_id} is already activating or has no children to coarsen.")
 
         # Update parent prim
-        parent_cell.prim = np.zeros(np.array(parent_cell.prim).shape)
+        parent_cell_con = np.zeros_like(parent_cell.prim)
         total_x = 0
         for child_id in parent_cell.children:
             child = self.get_cell_by_id(child_id)
 
-            parent_cell.prim += child.prim * child.dx
+            parent_cell_con += prim2con(child.prim) * child.dx
             total_x += child.dx
 
-        parent_cell.prim /= total_x
+        parent_cell.prim = con2prim(parent_cell_con / total_x)
 
         # Recursively remove children
         def _remove_subtree_from_grid(cell_id_to_remove):
@@ -266,16 +267,18 @@ def linear(active_cells, parent_cell, bc_type):
     recon = MUSCL.MUSCL_reconstruction()
 
     prim = np.array([c.prim for c in active_cells])
+    con = prim2con_grid(prim)
     X = np.array([c.x for c in active_cells])
     dx = np.array([c.dx for c in active_cells])
     
-    recon.update(prim, X, dx, bc_type)
+    recon.update(con, X, dx, bc_type)
    
-    child_left_prim = recon.reconstruct(parent_index, xi=-0.25) # assumed binary division
-    child_right_prim = recon.reconstruct(parent_index, xi=0.25) # assumed binary division
+    child_left_prim = con2prim(recon.reconstruct(parent_index, xi=-0.25)) # assumed binary division
+    child_right_prim = con2prim(recon.reconstruct(parent_index, xi=0.25)) # assumed binary division
 
     return child_left_prim, child_right_prim
 
+"""
 def ppm_refine(active_cells, parent_cell, bc_type):
     parent_index = active_cells.index(parent_cell)
     
@@ -388,4 +391,4 @@ def ppm_refine(active_cells, parent_cell, bc_type):
     child_left_prim = evaluate_parabola(xi_L_edge, am, ap, a6)
     child_right_prim = evaluate_parabola(xi_R_edge, am, ap, a6)
     
-    return child_left_prim, child_right_prim
+    return child_left_prim, child_right_prim"""
