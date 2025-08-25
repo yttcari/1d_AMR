@@ -140,6 +140,7 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
             history.append(copy.deepcopy(grid))
 
             grid.refine(id_only=False) # Refine all cell first
+
             active_cells = grid.get_all_active_cells()
             N = len(active_cells)
             grid_prim = np.array([c.prim for c in active_cells])
@@ -162,32 +163,34 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
 
             # To coarse or not to coarse
             def new_flag(coarse_epsilon, **kwargs):
-                for c in range(0, N, 2):
-                    cell_l = active_cells[c]
-                    cell_r = active_cells[c+1]
+
+                for c in range(0, N):
+                    cell_l = active_cells[max(c-1, 0)]
+                    cell_m = active_cells[c]
+                    cell_r = active_cells[min(c+1, N-1)]
 
                     cell_l_con = prim2con(cell_l.prim)
                     cell_r_con = prim2con(cell_r.prim)
+                    cell_m_con = prim2con(cell_m.prim)
 
+                    avg = (cell_l_con + cell_r_con + cell_m_con) / 3
 
-                    avg = (cell_l_con + cell_r_con) / 2
-
-                    # Aboslution error
+                    """
+                    # absolute error
                     diff_l = np.abs(cell_l_con - avg) / (avg + np.finfo(float).eps)
                     diff_r = np.abs(cell_r_con - avg) / (avg + np.finfo(float).eps)
 
                     if np.all(diff_l < coarse_epsilon) and np.all(diff_r < coarse_epsilon):
                         grid.coarsen_cell(active_cells[c].parent) # coarse all cell that has diff < epsilon
-
                     """
                     # RMS
-                    error = np.max(np.sqrt(ms(np.array([cell_l_con, cell_r_con]), avg, cell_l.dx))) #/ avg)
+                    # Error order?
+                    error = np.max(np.sqrt(ms(np.array([cell_l_con, cell_m_con, cell_r_con]), avg, np.array([cell_l.dx, cell_m.dx, cell_r.dx])))) #/ (avg + np.finfo(float).eps)) 
                     if error < coarse_epsilon:
-                        grid.coarsen_cell(active_cells[c].parent) # coarse all cell that has diff < epsilon
-                    """
-                    
-                    
+                        active_cells[c].need_coarse = True
+                        
             new_flag(**kwargs)
+            grid.coarse()
 
             pbar.update(dt)
 
