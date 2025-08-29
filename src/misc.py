@@ -1,7 +1,7 @@
 import numpy as np
 import analytical
 
-CFL = 0.4   
+CFL = 0.5
 GAMMA = 1.4
 
 Q_RHO = 0
@@ -255,3 +255,18 @@ def second_d(q, x):
     denominator = h1 * h2 * (h1 + h2)
     d2q_dx2 = 2 * numerator / denominator
     return d2q_dx2
+
+def con2flux(con):
+    # prim.shape = (3,)
+
+    rho = con[0]
+    rhou = con[1]
+    E = con[2]
+
+    _, u, p = con2prim(con)
+
+    return np.array([
+        rhou,
+        rho * (u ** 2) + p,
+        u * (E + p)
+    ])

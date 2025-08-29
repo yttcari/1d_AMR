@@ -226,6 +226,7 @@ class grid:
 
     def refine(self, id_only=True, **kwargs):
         active_cell = self.get_all_active_cells(**kwargs)
+        refined_index = np.zeros(len(active_cell))
 
         for c in active_cell:
             if c.need_refine and id_only: # i.e. only refine the give index
@@ -233,6 +234,9 @@ class grid:
                 c.need_refine = False
             if not id_only and c.level < self.max_level: # i.e. refine all cells first
                 self.refine_cell(c.id, active_cell)
+                refined_index[active_cell.index(c)] = 1
+
+        return refined_index
 
     def coarse(self, **kwargs):
         active_cell = self.get_all_active_cells(**kwargs)

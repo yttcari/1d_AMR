@@ -1,7 +1,7 @@
 import numpy as np
 import copy
 from tqdm import tqdm
-from reconstruct import dt_method
+from reconstruct import dt_method, new_dt_method
 from misc import *    
 import problem
 
@@ -139,7 +139,7 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
         while t < t_final:
             history.append(copy.deepcopy(grid))
 
-            grid.refine(id_only=False) # Refine all cell first
+            #grid.refine(id_only=False) # Refine all cell first
 
             active_cells = grid.get_all_active_cells()
             N = len(active_cells)
@@ -154,8 +154,17 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
 
             if t + dt > t_final:
                 dt = t_final - t
-            U = dt_method(U=U, solver=solver, dt=dt, dx=dx, N=N, X=X, dt_type=dt_type, dx_type=dx_type, bc_type=grid.bc_type)
-            grid.update(con2prim_grid(U))
+            
+            # TODO VERY VERY BAD PRACTICE 
+            refined_index = grid.refine(id_only=False) # Refine all cell first
+            active_cells = grid.get_all_active_cells()
+            grid_prim = np.array([c.prim for c in active_cells])
+            refined_U = prim2con_grid(grid_prim)
+            #print(refined_U.shape, U.shape, N)
+            result_U = new_dt_method(U=U, solver=solver, dt=dt, dx=dx, N=N, X=X, dt_type=dt_type, dx_type=dx_type, bc_type=grid.bc_type, refined_U=refined_U, refined_index=refined_index)
+
+            N = len(active_cells)
+            grid.update(con2prim_grid(result_U))
 
             # Update time and add to history
             t += dt
@@ -186,6 +195,7 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
                     # RMS
                     # Error order?
                     error = np.max(np.sqrt(ms(np.array([cell_l_con, cell_m_con, cell_r_con]), avg, np.array([cell_l.dx, cell_m.dx, cell_r.dx])))) #/ (avg + np.finfo(float).eps)) 
+                    #print(error)
                     if error < coarse_epsilon:
                         active_cells[c].need_coarse = True
                         
@@ -206,9 +216,9 @@ def run_sim(grid1, max_level, bc_type, prob, solve_method, refine_epsilon, coars
         grid1, init_con = problem.plane_wave(grid1)
     elif prob == 'sod':
         grid1, init_con = problem.sod_rod_tube(grid1)
-    
     if solve_method == 'old':
         print("Using old method now")
+        
         grid1_history = solve(HLL_flux, grid1, t_final=t_final, refine_epsilon=refine_epsilon, coarse_epsilon=coarse_epsilon, dt_type=dt_type, dx_type=dx_type)
     elif solve_method == 'new':
         print("Using new method now")

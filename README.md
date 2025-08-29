@@ -6,7 +6,6 @@
 
 # TODO:
 - Re-use reconstruction method in refinement
-- Not sure why old reconstruction goes off when coarsening is on, no such effect is seen in new method
 - Test for converegence order in old/new AMR 
 - Re-do PPM reconstruction in cell refinement
 - Is there a fair way to compare the epsilon of two method? -> epsilon computation?

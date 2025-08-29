@@ -71,6 +71,6 @@ def MUSCL(U, solver, dt, dx, N, X, bc_type='outflow', **kwargs):
     for i in range(N + 1):
         flux[i] = solver(UR_gc[i+NG-1], UL_gc[i+NG])
     
-    dU = (1 / dx[:, np.newaxis]) * (flux[1:] - flux[:-1])
+    #dU = (1 / dx[:, np.newaxis]) * (flux[1:] - flux[:-1])
 
-    return -dU
+    return flux
