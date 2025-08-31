@@ -160,47 +160,13 @@ def new_solve(solver, grid, t_final, dx_type='godunov', dt_type='rk4',**kwargs):
             active_cells = grid.get_all_active_cells()
             grid_prim = np.array([c.prim for c in active_cells])
             refined_U = prim2con_grid(grid_prim)
-            #print(refined_U.shape, U.shape, N)
-            result_U = new_dt_method(U=U, solver=solver, dt=dt, dx=dx, N=N, X=X, dt_type=dt_type, dx_type=dx_type, bc_type=grid.bc_type, refined_U=refined_U, refined_index=refined_index)
-
-            N = len(active_cells)
-            grid.update(con2prim_grid(result_U))
+            refined_X = np.array([c.x for c in active_cells])
+            grid = new_dt_method(U=U, solver=solver, dt=dt, dx=dx, old_N=N, old_X=X, dt_type=dt_type, dx_type=dx_type, bc_type=grid.bc_type, 
+                                     refined_U=refined_U, refined_index=refined_index, refined_N=len(active_cells), refined_X=refined_X, grid=grid, **kwargs)
 
             # Update time and add to history
             t += dt
             grid.t = t
-
-            # To coarse or not to coarse
-            def new_flag(coarse_epsilon, **kwargs):
-
-                for c in range(0, N):
-                    cell_l = active_cells[max(c-1, 0)]
-                    cell_m = active_cells[c]
-                    cell_r = active_cells[min(c+1, N-1)]
-
-                    cell_l_con = prim2con(cell_l.prim)
-                    cell_r_con = prim2con(cell_r.prim)
-                    cell_m_con = prim2con(cell_m.prim)
-
-                    avg = (cell_l_con + cell_r_con + cell_m_con) / 3
-
-                    """
-                    # absolute error
-                    diff_l = np.abs(cell_l_con - avg) / (avg + np.finfo(float).eps)
-                    diff_r = np.abs(cell_r_con - avg) / (avg + np.finfo(float).eps)
-
-                    if np.all(diff_l < coarse_epsilon) and np.all(diff_r < coarse_epsilon):
-                        grid.coarsen_cell(active_cells[c].parent) # coarse all cell that has diff < epsilon
-                    """
-                    # RMS
-                    # Error order?
-                    error = np.max(np.sqrt(ms(np.array([cell_l_con, cell_m_con, cell_r_con]), avg, np.array([cell_l.dx, cell_m.dx, cell_r.dx])))) #/ (avg + np.finfo(float).eps)) 
-                    #print(error)
-                    if error < coarse_epsilon:
-                        active_cells[c].need_coarse = True
-                        
-            new_flag(**kwargs)
-            grid.coarse()
 
             pbar.update(dt)
 

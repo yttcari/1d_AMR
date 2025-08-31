@@ -11,13 +11,15 @@ def calc_epsilon(prim, X, dx, bc_type):
         X_gc = generate_gc(X, 1, bc_type)
 
         d2 = second_d(q_gc, X_gc)
-        numerator = np.abs(d2) * dx ** 2
-        return numerator / q
+        numerator = np.abs(d2) * (dx ** 2)
+        #print(q)
+        return numerator / (q)
     
     rho_e = epsilon(prim[:, Q_RHO])
     P_e = epsilon(prim[:, Q_P])
     
     e = np.maximum(rho_e, P_e)
+    #print(e)
     return e
 
 
@@ -223,6 +225,29 @@ class grid:
             if active_cell[i].level > 0 and not active_cell[i].need_refine:
                 active_cell[i].need_coarse = True
 
+    # To coarse or not to coarse
+    def new_flag(self, coarse_epsilon, **kwargs):
+        active_cells = self.get_all_active_cells()
+        N = len(active_cells)
+
+        for c in range(0, N):
+            cell_l = active_cells[max(c-1, 0)]
+            cell_m = active_cells[c]
+            cell_r = active_cells[min(c+1, N-1)]
+
+            cell_l_con = prim2con(cell_l.prim)
+            cell_r_con = prim2con(cell_r.prim)
+            cell_m_con = prim2con(cell_m.prim)
+
+            avg = (cell_l_con + cell_r_con + cell_m_con) / 3
+
+            # RMS
+            # Error order?
+            error = np.max(np.sqrt(ms(np.array([cell_l_con, cell_m_con, cell_r_con]), avg, np.array([cell_l.dx, cell_m.dx, cell_r.dx])))) #/ (avg + np.finfo(float).eps)) 
+            #print(np.max(np.sqrt(ms(np.array([cell_l_con, cell_m_con, cell_r_con]), avg, np.array([cell_l.dx, cell_m.dx, cell_r.dx])))))
+            if error < coarse_epsilon:
+                active_cells[c].need_coarse = True
+
 
     def refine(self, id_only=True, **kwargs):
         active_cell = self.get_all_active_cells(**kwargs)
@@ -240,8 +265,10 @@ class grid:
 
     def coarse(self, **kwargs):
         active_cell = self.get_all_active_cells(**kwargs)
+        coarse_index = np.zeros(len(active_cell))
+        N = len(active_cell)
 
-        for c in active_cell:
+        for i, c in enumerate(active_cell):
             if c.need_coarse and c.id in self.grid and c.parent is not None:
                 parent_cell = self.get_cell_by_id(c.parent)
                 sibling = parent_cell.children
@@ -255,6 +282,16 @@ class grid:
 
                 if coarse_flag:
                     self.coarsen_cell(c.parent)
+                    coarse_index[i] = 1
+                    #print(active_cell[i].parent, active_cell[min(N-1, i+1)].parent, active_cell[max(0, i-1)].parent)
+
+                    if active_cell[i].parent == active_cell[min(i+1, N-1)].parent:
+                        coarse_index[min(i+1, N-1)] = 1
+                    elif active_cell[i].parent == active_cell[max(0, i-1)].parent:
+                        coarse_index[max(i-1, 0)] = 1
+
+        #print((coarse_index))
+        return coarse_index
 
 
 # ===== Refinement Method within grid =====
